@@ -16,6 +16,7 @@ mod notes_cmd;
 mod org;
 mod parser;
 mod query;
+mod skill;
 mod tasks;
 mod templater;
 mod update;
@@ -188,6 +189,12 @@ enum Command {
         #[arg(short = 'f', long = "force")]
         force: bool,
     },
+    /// Print the embedded agent skill, or register it with the agents here.
+    Skill {
+        /// Write it into every agent host found on this machine.
+        #[arg(long = "install")]
+        install: bool,
+    },
     /// Replace this binary with the newest release.
     SelfUpdate {
         /// Report whether a newer release exists, without installing it.
@@ -345,6 +352,7 @@ fn run() -> Result<()> {
     // one first would make it impossible to run.
     match &cli.command {
         Command::Init { force } => return notes_cmd::init(*force),
+        Command::Skill { install } => return skill::run(*install),
         Command::SelfUpdate { check, yes } => return update::run(*check, *yes),
         _ => {}
     }
@@ -370,7 +378,9 @@ fn run() -> Result<()> {
         } => commands::orphans(&config, &format, include_special),
         Command::Hubs { limit, format } => commands::hubs(&config, limit, &format),
         Command::BrokenLinks { format } => commands::broken_links(&config, &format),
-        Command::Init { .. } | Command::SelfUpdate { .. } => unreachable!("dispatched above"),
+        Command::Init { .. } | Command::Skill { .. } | Command::SelfUpdate { .. } => {
+            unreachable!("dispatched above")
+        }
         Command::Context {
             file,
             no_content,

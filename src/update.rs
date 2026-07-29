@@ -48,7 +48,12 @@ pub fn run(check_only: bool, yes: bool) -> Result<()> {
 
     match update.update().map_err(|e| anyhow!("update failed: {e}"))? {
         self_update::Status::UpToDate(v) => println!("knapper {v} is up to date."),
-        self_update::Status::Updated(v) => println!("Updated to knapper {v}."),
+        self_update::Status::Updated(v) => {
+            println!("Updated to knapper {v}.");
+            // The skill documents this binary, so a stale one is worse than
+            // none. The new binary carries the new text; register it now.
+            crate::skill::register();
+        }
     }
     Ok(())
 }

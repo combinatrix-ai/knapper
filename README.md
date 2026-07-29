@@ -72,13 +72,24 @@ virtualenv, no dependency resolution. That is the point: knapper is for
 machines where you would rather not stand up a runtime.
 
 ```bash
-# macOS (Apple silicon)
+curl -fsSL https://raw.githubusercontent.com/combinatrix-ai/knapper/main/install.sh | sh
+```
+
+That puts the binary in `~/.local/bin`, verifies it against the release's
+`SHA256SUMS`, and registers the agent skill with whichever of Claude Code and
+Codex it finds. `--bin-dir`, `--version` and `--skill none` change all three;
+`--help` lists them.
+
+Or take the archive yourself, from
+[Releases](https://github.com/combinatrix-ai/knapper/releases):
+
+```bash
 curl -L https://github.com/combinatrix-ai/knapper/releases/latest/download/knapper-aarch64-apple-darwin.tar.gz | tar xz
 sudo mv knapper/knapper /usr/local/bin/
 ```
 
 Linux builds are musl-linked, so they run on Alpine and in a scratch
-container. Every release ships a `SHA256SUMS` file.
+container.
 
 Because there is no package manager in that story, knapper upgrades itself:
 
@@ -208,8 +219,20 @@ knapper context "Notes/Lit Review.md"
 }
 ```
 
-Going further: an MCP server lives in [`knapper-mcp/`](knapper-mcp/), and an
-agent skill definition in [`skill/`](skill/).
+### The skill ships inside the binary
+
+An agent host does not need this repository to learn how to drive knapper:
+
+```bash
+knapper skill              # print it
+knapper skill --install    # write it into ~/.claude and ~/.codex
+```
+
+`install.sh` registers it for you, and `knapper self-update` re-registers it,
+so the instructions an agent reads cannot drift behind the binary they
+describe. The source is [`assets/knapper-skill.md`](assets/knapper-skill.md).
+
+There is an MCP server too, in [`knapper-mcp/`](knapper-mcp/).
 
 ## Tasks
 
@@ -271,6 +294,7 @@ Templates expand on creation — both Obsidian Core Templates (`{{date}}`,
 | `knapper daily [DATE]` | Create or get a daily note |
 | `knapper frontmatter get / set / delete` | Read and write YAML frontmatter |
 | `knapper tags` | List tags, or find files by tag with `--find` |
+| `knapper skill` | Print the embedded agent skill, or `--install` it |
 | `knapper self-update` | Replace this binary with the newest release |
 
 Query commands take `-f/--format`; the rest of the detail lives behind

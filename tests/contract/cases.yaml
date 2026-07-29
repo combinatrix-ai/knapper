@@ -646,3 +646,19 @@
     file:
       "source.md":
         contains: ["[[Target]]"]
+
+# ---------------------------------------------------------------- The skill --
+
+- name: bare / the skill is embedded and printable without a vault
+  vault: bare
+  args: [skill]
+  # An agent host gets the instructions from the binary, not from a checkout,
+  # so this must work anywhere -- including where there is no config.
+  expect:
+    stdout_contains: ["name: knapper", "description:", "# knapper"]
+
+- name: bare / the printed skill only names commands that exist
+  vault: bare
+  args: [skill]
+  expect:
+    stdout_excludes: ["knapper rag", "knapper search ", "knapper impute"]
