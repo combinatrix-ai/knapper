@@ -1,0 +1,36 @@
+[package]
+name = "knapper"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"   # LazyLock
+description = "A headless CLI for markdown knowledge bases, built for AI agents"
+license = "MIT"
+repository = "https://github.com/combinatrix-ai/knapper"
+
+[[bin]]
+name = "knapper"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+walkdir = "2"
+rayon = "1"
+percent-encoding = "2"
+chrono = "0.4"
+anyhow = "1"
+self_update = { version = "0.44", default-features = false, features = ["archive-tar", "compression-flate2", "ureq", "rustls"] }
+
+[dev-dependencies]
+# Vault-level behaviour is only real against a directory of files, so the
+# tests that cover it build one.
+tempfile = "3"
+serde_yaml = "0.9"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

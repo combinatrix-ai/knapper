@@ -1,0 +1,648 @@
+# The knapper command-line contract, as data. See README.md.
+#
+# These describe what a caller can rely on. They are deliberately independent
+# of how any one implementation is arranged, so a port can be checked against
+# them rather than hoped about.
+
+# ---------------------------------------------------------------- Obsidian --
+
+- name: obsidian / links resolve, code and comments do not
+  vault: obsidian
+  args: [broken-links, --format, json]
+  # Thesis.md holds [[Not A Link]] in a fence, [[Also Not A Link]] in a
+  # %%comment%% and [[Nor This]] in an inline span. None is a reference.
+  expect:
+    json: []
+
+- name: obsidian / an alias resolves to the note declaring it
+  vault: obsidian
+  args: [backlinks, Notes/Lit Review.md, --format, json]
+  # Thesis.md links by name, by heading, as an embed, and by the alias
+  # 文献レビュー. All four land on the same note.
+  expect:
+    json_at: {"0.source": "Projects/Thesis.md"}
+
+- name: obsidian / a link-valued property reaches the graph
+  vault: obsidian
+  args: [query, --where, inlinks>0, --format, paths]
+  sorted: true
+  expect:
+    lines: ["Notes/Lit Review.md", "Projects/Thesis.md"]
+
+- name: obsidian / tags include nested and non-ASCII, and exclude code
+  vault: obsidian
+  args: [tags, --format, json]
+  expect:
+    stdout_contains: ["project/active", "日本語タグ", "research"]
+    stdout_excludes: ["notatag"]
+
+- name: obsidian / the full emoji task set is read
+  vault: obsidian
+  args: [tasks, --all, --format, json]
+  # Four in Thesis.md plus one in the daily note.
+  expect:
+    json_length: 5
+    stdout_contains:
+      - '"due_date": "2026-08-01"'
+      - '"done_date": "2026-07-20"'
+      - '"scheduled_date": "2026-08-05"'
+      - '"start_date": "2026-08-02"'
+      - '"priority": "high"'
+
+- name: obsidian / overdue filters on the due date
+  vault: obsidian
+  args: [tasks, --due-to, "2026-08-01", --format, json]
+  # The daily note's task is due earlier, so it is inside the range too.
+  expect:
+    json_length: 2
+    stdout_contains: ['"due_date": "2026-08-01"', '"due_date": "2026-07-29"']
+
+- name: obsidian / an unparseable date is rejected, not ignored
+  vault: obsidian
+  args: [tasks, --due-from, today]
+  expect:
+    exit: 2
+    stderr_contains: ["--due-from", "YYYY-MM-DD"]
+
+- name: obsidian / context aggregates one note
+  vault: obsidian
+  args: [context, Notes/Lit Review.md, --format, json]
+  expect:
+    json_at:
+      path: "Notes/Lit Review.md"
+      title: "Lit Review"
+
+- name: obsidian / frontmatter reads a property
+  vault: obsidian
+  args: [frontmatter, get, Projects/Thesis.md, status]
+  expect:
+    stdout_contains: ["open"]
+
+- name: obsidian / knapper's own config is not a note
+  vault: obsidian
+  args: [query, --format, paths]
+  expect:
+    stdout_excludes: ["knapper.config.md"]
+
+- name: obsidian / rename rewrites every inbound link
+  vault: obsidian
+  args: [rename, "Lit Review", "Reading Notes"]
+  expect:
+    file:
+      "Projects/Thesis.md":
+        contains: ["Reading Notes"]
+        excludes: ["[[Notes/Lit Review]]"]
+
+- name: obsidian / dry run changes nothing
+  vault: obsidian
+  args: [rename, "Lit Review", "Reading Notes", --dry-run]
+  expect:
+    stdout_contains: ["DRY RUN"]
+    file:
+      "Projects/Thesis.md":
+        contains: ["[[Notes/Lit Review]]"]
+
+# -------------------------------------------------------- Plain markdown --
+
+- name: markdown-plain / markdown links resolve without any wikilinks
+  vault: markdown-plain
+  args: [links, README.md, --format, json]
+  # guide is linked twice, once plain and once with an #anchor.
+  expect:
+    json_length: 3
+    stdout_contains: ["docs/guide", "docs/my guide"]
+
+- name: markdown-plain / images and external URLs are not links
+  vault: markdown-plain
+  args: [links, README.md, --format, json]
+  expect:
+    stdout_excludes: ["logo.png", "example.com"]
+
+- name: markdown-plain / percent-encoded targets resolve
+  vault: markdown-plain
+  args: [backlinks, docs/my guide.md, --format, json]
+  expect:
+    json_at: {"0.source": "README.md"}
+
+- name: markdown-plain / rename preserves link text and anchors
+  vault: markdown-plain
+  args: [rename, guide, handbook]
+  expect:
+    file:
+      "README.md":
+        contains: ["[guide](docs/handbook.md)", "[anchored](docs/handbook.md#setup)"]
+        excludes: ["docs/guide.md"]
+
+# ------------------------------------------------------------------ Foam --
+
+- name: foam / both link syntaxes coexist
+  vault: foam
+  args: [links, index.md, --format, json]
+  expect:
+    json_length: 2
+    stdout_contains: ["concepts/graph"]
+
+- name: foam / the graph has no broken targets
+  vault: foam
+  args: [broken-links, --format, json]
+  expect:
+    json: []
+
+# --------------------------------------------------------------- Dendron --
+
+- name: dendron / dot-hierarchy names are not extensions
+  vault: dendron
+  args: [links, proj.knapper.md, --format, json]
+  expect:
+    json_length: 3
+    stdout_contains: ["proj.knapper.design"]
+
+- name: dendron / nothing is broken
+  vault: dendron
+  args: [broken-links, --format, json]
+  expect:
+    json: []
+
+# ---------------------------------------------------------- Zettelkasten --
+
+- name: zettelkasten / id-prefixed filenames link both ways
+  vault: zettelkasten
+  args: [query, --where, inlinks>0, --format, paths]
+  sorted: true
+  expect:
+    lines:
+      - "202607281530 block model.md"
+      - "202607281545 file as unit.md"
+
+# -------------------------------------------------------------- Dataview --
+
+- name: dataview / inline fields are readable
+  vault: dataview
+  args: [context, Diary/2026-05-06.md, --format, json]
+  expect:
+    json_at:
+      inline_fields.cal: "542"
+      inline_fields.meal: "食事"
+
+- name: dataview / an inline field is queryable
+  vault: dataview
+  args: [query, --where, "cal=542", --format, paths]
+  expect:
+    lines: ["Diary/2026-05-06.md"]
+
+- name: dataview / a wikilink in a field value is a real link
+  vault: dataview
+  args: [backlinks, Areas/Health/食事.md, --format, json]
+  expect:
+    json_at: {"0.source": "Diary/2026-05-06.md"}
+
+- name: dataview / fields lists what the vault declares
+  vault: dataview
+  args: [fields, --format, json]
+  expect:
+    stdout_contains: ["cal", "meal", "computed"]
+
+# ---------------------------------------------------------------- Logseq --
+
+- name: logseq / page references resolve
+  vault: logseq
+  args: [broken-links, --format, json]
+  expect:
+    json: []
+
+- name: logseq / bare keywords are tasks under flavor logseq
+  vault: logseq
+  args: [tasks, --all, --format, json]
+  expect:
+    json_length: 4
+    stdout_contains: ["ship v0.1.0", "write fixtures", "think about org-mode", "follow up"]
+
+- name: logseq / SCHEDULED becomes a date the filters understand
+  vault: logseq
+  args: [tasks, --format, json]
+  expect:
+    stdout_contains: ["2026-08-01"]
+
+- name: logseq / page properties are read as inline fields
+  vault: logseq
+  args: [context, pages/knapper.md, --format, json]
+  expect:
+    json_at:
+      inline_fields.title: "Knapper"
+
+- name: logseq / block references are not link targets
+  vault: logseq
+  args: [links, pages/knapper.md, --format, json]
+  expect:
+    stdout_excludes: ["663f0a11"]
+
+# ------------------------------------------------------------------ Roam --
+
+- name: roam / macros do not become links
+  vault: roam
+  args: [links, "May 28th, 2022.md", --format, json]
+  expect:
+    stdout_excludes: ["query", "TODO"]
+
+- name: roam / doubled brackets resolve to the inner name
+  vault: roam
+  args: [links, "May 28th, 2022.md", --format, json]
+  expect:
+    stdout_contains: ["Ideas"]
+
+- name: roam / TODO macros are tasks with no configuration
+  vault: roam
+  args: [tasks, --all, --format, json]
+  expect:
+    json_length: 2
+    stdout_contains: ["biorxiv"]
+
+- name: roam / block references are not link targets
+  vault: roam
+  args: [links, "May 28th, 2022.md", --format, json]
+  expect:
+    stdout_excludes: ["GGkhSlrsZ"]
+
+# --------------------------------------------------------------- org-mode --
+
+- name: orgmode / org files are scanned
+  vault: orgmode
+  args: [query, --format, paths]
+  sorted: true
+  expect:
+    lines: ["lit-review.org", "thesis.org"]
+
+- name: orgmode / file and heading links resolve
+  vault: orgmode
+  args: [broken-links, --format, json]
+  expect:
+    json: []
+
+- name: orgmode / TODO states become tasks
+  vault: orgmode
+  args: [tasks, --all, --format, json]
+  expect:
+    json_length: 2
+    stdout_contains: ["draft intro", "outline"]
+
+- name: orgmode / planning timestamps map onto the date filters
+  vault: orgmode
+  args: [tasks, --format, json]
+  expect:
+    stdout_contains: ["2026-08-01"]
+
+- name: orgmode / filetags and heading tags are read
+  vault: orgmode
+  args: [tags, --format, json]
+  expect:
+    stdout_contains: ["research", "project"]
+
+# ------------------------------------------------- Cross-cutting behaviour --
+
+- name: query subsumes orphans
+  vault: obsidian
+  args: [query, --where, inlinks=0, --format, paths]
+  sorted: true
+  expect:
+    lines: ["Daily/2026-07-28.md"]
+
+- name: query subsumes broken-links
+  vault: roam
+  args: [query, --where, broken>0, --format, paths]
+  expect:
+    lines: ["May 28th, 2022.md"]
+
+- name: query combines a declared field with a computed one
+  vault: obsidian
+  args: [query, --where, status=open, --field, inlinks, --format, json]
+  expect:
+    json_at:
+      "0.path": "Projects/Thesis.md"
+      "0.inlinks": 1
+
+- name: query ties break on path, not on scan order
+  vault: zettelkasten
+  # Both notes have one inbound link. The order must not depend on file
+  # modification time, or the same query answers differently on two clones.
+  args: [query, --where, inlinks=1, --sort, inlinks:desc, --format, paths]
+  expect:
+    lines:
+      - "202607281530 block model.md"
+      - "202607281545 file as unit.md"
+
+- name: query rejects a malformed filter
+  vault: obsidian
+  args: [query, --where, "!a=b"]
+  expect:
+    exit: 2
+
+- name: lint reports the checks it ran
+  vault: obsidian
+  args: [lint, --format, json]
+  expect:
+    json_at:
+      summary.broken_links: 0
+
+# ------------------------------------------------------ Write commands --
+
+- name: frontmatter set writes a value and leaves the body alone
+  vault: obsidian
+  args: [frontmatter, set, Projects/Thesis.md, status, done]
+  expect:
+    file:
+      "Projects/Thesis.md":
+        contains: ["status: done", "# Thesis", "draft intro"]
+        excludes: ["status: open"]
+
+- name: frontmatter delete removes a key
+  vault: obsidian
+  args: [frontmatter, delete, Projects/Thesis.md, status]
+  expect:
+    file:
+      "Projects/Thesis.md":
+        contains: ["# Thesis"]
+        excludes: ["status:"]
+
+- name: tasks done marks a task and stamps the date
+  vault: obsidian
+  args: [tasks, done, "methods section"]
+  expect:
+    stdout_contains: ["methods section", "Projects/Thesis.md"]
+    file:
+      "Projects/Thesis.md":
+        contains: ["- [x] methods section ✅"]
+        excludes: ["- [/] methods section"]
+
+- name: tasks wip moves a task to in-progress
+  vault: obsidian
+  args: [tasks, wip, "draft intro", --partial]
+  expect:
+    file:
+      "Projects/Thesis.md":
+        contains: ["- [/] draft intro"]
+
+- name: tasks set uses a named status
+  vault: obsidian
+  args: [tasks, set, cancel, "methods section"]
+  expect:
+    file:
+      "Projects/Thesis.md":
+        contains: ["- [-] methods section"]
+
+- name: an ambiguous task is refused rather than guessed
+  vault: obsidian
+  # "e" appears in several tasks; rewriting the wrong one is worse than
+  # refusing, and --file narrows it.
+  args: [tasks, done, e, --partial]
+  expect:
+    exit: 1
+
+- name: tasks new appends a task with its markers
+  vault: obsidian
+  # --file rather than the default daily note, whose name is today's date.
+  args: [tasks, new, "write it down", --due, "2026-09-01", --file, "Daily/2026-07-28.md"]
+  expect:
+    stdout_contains: ["write it down", "📅 2026-09-01"]
+    file:
+      "Daily/2026-07-28.md":
+        contains: ["- [ ] write it down", "📅 2026-09-01"]
+
+- name: move relocates a note and updates links
+  vault: obsidian
+  args: [move, "Lit Review", "Archive/"]
+  expect:
+    file:
+      "Projects/Thesis.md":
+        contains: ["Archive/Lit Review"]
+
+- name: daily prints a path
+  vault: obsidian
+  args: [daily, --path-only]
+  expect:
+    stdout_contains: ["Daily/"]
+
+# ------------------------------------------------------- Before a config --
+# The `bare` fixture has no knapper.config.md, which is what every vault looks
+# like the moment before `knapper init`. Every other fixture ships a config,
+# so this state went unexercised -- and both implementations were wrong in it.
+
+- name: bare / init works where no config exists yet
+  vault: bare
+  args: [init]
+  expect:
+    stdout_contains: ["knapper.config.md"]
+    file:
+      "knapper.config.md":
+        contains: ["vault_path"]
+
+- name: bare / a vault command says how to fix it, and does not traceback
+  vault: bare
+  args: [links, Note.md]
+  expect:
+    exit: 1
+    stderr_contains: ["Run 'knapper init'"]
+    stderr_excludes: ["Traceback"]
+
+# ------------------------------------------------------ Driven by config --
+# The `configured` fixture is not a flavor either: it exists to exercise what
+# knapper.config.md can change -- an excluded subtree, and custom task
+# statuses. logs/ holds a note that links, tags and carries a task, so any
+# command that forgets the exclude shows it immediately.
+
+- name: configured / an excluded subtree is invisible to the link graph
+  vault: configured
+  args: [orphans, --format, json]
+  # Real.md is linked only from the excluded log, so it is an orphan now.
+  # Templates/ is hidden from orphans by default.
+  expect:
+    json: ["Lonely.md", "Real.md"]
+
+- name: configured / --include-special reveals Templates
+  vault: configured
+  args: [orphans, --include-special, --format, json]
+  expect:
+    json: ["Lonely.md", "Real.md", "Templates/daily.md"]
+
+- name: configured / an excluded note contributes no tags
+  vault: configured
+  args: [tags, --format, json]
+  expect:
+    stdout_excludes: ["logtag"]
+    stdout_contains: ["realtag"]
+
+- name: configured / an excluded note contributes no tasks
+  vault: configured
+  args: [tasks, --format, paths]
+  expect:
+    lines: ["Real.md"]
+
+- name: configured / an excluded note's dangling link is not a broken link
+  vault: configured
+  args: [broken-links, --format, json]
+  # logs/noise.md points at [[Nowhere]], which was never read.
+  expect:
+    json: []
+
+- name: configured / query does not reach into an excluded subtree
+  vault: configured
+  args: [query, --format, paths]
+  expect:
+    stdout_excludes: ["logs/"]
+
+- name: configured / a config-defined status is understood by --status
+  vault: configured
+  args: [tasks, --status, forward, --format, json]
+  expect:
+    json_length: 1
+    json_at: {"0.text": "a forwarded task", "0.status": "forward"}
+
+- name: configured / a closed custom status is hidden by default
+  vault: configured
+  args: [tasks, --format, json]
+  expect:
+    json_length: 1
+    json_at: {"0.text": "a real task"}
+
+- name: configured / breadcrumbs show the heading path above a task
+  vault: configured
+  args: [tasks, --breadcrumbs]
+  expect:
+    stdout_contains: ["Real > Section A:"]
+
+# ------------------------------------------------- Reading around a match --
+
+- name: obsidian / backlinks can show the lines around a match
+  vault: obsidian
+  args: [backlinks, Notes/Lit Review.md, -B, "1", -A, "1", --format, json]
+  expect:
+    json_at: {"0.source": "Projects/Thesis.md"}
+    stdout_contains: ['"context"']
+
+- name: obsidian / without -A or -B there is no context key
+  vault: obsidian
+  args: [backlinks, Notes/Lit Review.md, --format, json]
+  expect:
+    stdout_excludes: ['"context"']
+
+- name: obsidian / links takes the same -A and -B flags
+  vault: obsidian
+  args: [links, Projects/Thesis.md, -A, "1", --format, json]
+  expect:
+    stdout_contains: ['"context"']
+
+- name: obsidian / tasks can show the lines around each task
+  vault: obsidian
+  args: [tasks, -C, "1", --file, Projects/Thesis.md]
+  expect:
+    stdout_contains: ["- [ ]"]
+
+- name: obsidian / tasks group by file
+  vault: obsidian
+  args: [tasks, --group, file]
+  expect:
+    stdout_contains: ["Projects/Thesis.md:"]
+
+- name: obsidian / tasks group by due date
+  vault: obsidian
+  args: [tasks, --group, date]
+  expect:
+    stdout_contains: ["2026-08-01:"]
+
+# ------------------------------------------------ Trimming what context returns --
+
+- name: obsidian / context carries the note's tasks
+  vault: obsidian
+  args: [context, Projects/Thesis.md, --format, json]
+  expect:
+    stdout_contains: ['"tasks"']
+
+- name: obsidian / --no-tasks drops them
+  vault: obsidian
+  args: [context, Projects/Thesis.md, --format, json, --no-tasks]
+  expect:
+    stdout_excludes: ['"tasks"']
+
+- name: obsidian / --no-content and --no-backlinks drop their sections
+  vault: obsidian
+  args: [context, Notes/Lit Review.md, --format, json, --no-content, --no-backlinks]
+  expect:
+    stdout_excludes: ['"content"', '"backlinks"']
+    stdout_contains: ['"path"']
+
+- name: obsidian / --max-content truncates rather than omitting
+  vault: obsidian
+  args: [context, Projects/Thesis.md, --format, json, --max-content, "10"]
+  expect:
+    json_at: {"content": "# Thesis\n\n\n... (truncated)"}
+
+# ------------------------------------------------ Rewriting links safely --
+# The command that earns the install, and the one with the most ways to be
+# subtly wrong. Everything below is one file's worth of link forms.
+
+- name: refactor / every link form to a renamed note is rewritten
+  vault: refactor
+  args: [rename, Target, Renamed]
+  expect:
+    file:
+      "source.md":
+        contains:
+          - "[[Renamed]]"
+          - "[[Renamed|the target]]"
+          - "[[Renamed#Section]]"
+          - "[the note](Renamed.md)"
+          - "[Human label](Renamed.md#a-heading)"
+
+- name: refactor / lookalikes are left alone
+  vault: refactor
+  args: [rename, Target, Renamed]
+  expect:
+    file:
+      "source.md":
+        contains:
+          # An image embed is not an outgoing link, and .png is not the note.
+          - "![Target](Target.png)"
+          # The URL merely ends the same way.
+          - "https://x.com/Target.md"
+
+- name: refactor / a link inside a code fence is rewritten too
+  vault: refactor
+  args: [rename, Target, Renamed]
+  # Known and deliberate for now, but not obviously right: everywhere else
+  # knapper treats fenced content as not-prose, and a fenced [[Target]] is
+  # excluded from the link graph. Rewriting it here is the one place that
+  # rule does not hold. Pinned so that changing it is a visible edit.
+  expect:
+    file:
+      "source.md":
+        excludes: ["[[Target]]"]
+
+- name: refactor / a folder prefix survives a rename
+  vault: refactor
+  args: [rename, Nested, Moved]
+  expect:
+    file:
+      "source.md":
+        contains: ["[x](Projects/Moved.md)"]
+
+- name: refactor / rename reports both paths as json
+  vault: refactor
+  args: [rename, Target, Renamed, --format, json]
+  expect:
+    stdout_contains: ["old_path", "new_path"]
+
+- name: refactor / move relocates a note and rewrites its links
+  vault: refactor
+  args: [move, Target.md, Archive/]
+  expect:
+    file:
+      "source.md":
+        contains: ["Archive/Target"]
+
+- name: refactor / a dry run writes nothing
+  vault: refactor
+  args: [move, Target.md, Archive/, --dry-run]
+  expect:
+    stdout_contains: ["DRY RUN"]
+    file:
+      "source.md":
+        contains: ["[[Target]]"]

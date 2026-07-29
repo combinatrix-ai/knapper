@@ -1,0 +1,15 @@
+#+TITLE: Thesis
+#+FILETAGS: :research:project:
+
+* Overview
+  :PROPERTIES:
+  :ID:       aq7b2m
+  :STATUS:   open
+  :END:
+
+Links to [[file:lit-review.org][Lit Review]] and [[*Method]].
+
+** TODO draft intro
+   DEADLINE: <2026-08-01 Sat>
+** DONE outline
+   CLOSED: [2026-07-20 Mon]

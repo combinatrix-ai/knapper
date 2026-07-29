@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned rather than "stable": clippy gains lints with every release, so
+      # -D warnings on a floating toolchain fails builds for reasons unrelated
+      # to the commit under test, and on a lint the author could not have run.
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy, rustfmt
+
+      - name: Format
+        run: cargo fmt -- --check
+
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Unit tests cover the parser, org reader, vault scan, templater, tasks
+      # and query. The contract suite drives the built binary against fixture
+      # vaults, which is what the CLI actually promises callers.
+      - name: Test
+        run: cargo test
+
+      - name: Build the release binary
+        run: cargo build --release

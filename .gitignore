@@ -1,0 +1,18 @@
+# Rust
+/target/
+
+# The MCP server is a Python client of the binary
+__pycache__/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# knapper's own state, if it is ever run inside this repo
+.knapper/
+
+# OS
+.DS_Store
+*.log
