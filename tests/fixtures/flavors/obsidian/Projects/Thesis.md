@@ -26,15 +26,18 @@ Inline `[[Nor This]]` too.
 - [x] outline ✅ 2026-07-20
 - [/] methods section
 
-Credentials: ⟦secret:db/prod #database #日本語⟧
-Services: ⟦secret:api-key #service #shared⟧ and ⟦secret:token.v2 #service⟧
+住所: [日本橋小舟町の住所](knapper://personal/address.nihonbashi_kobunacho)
+Deploy: [CI token](<knapper://work/tokens/ci.deploy>) and [DB](knapper://work/db/prod "primary")
 
-`Inline ⟦secret:not-inline #service⟧`
+`Inline [x](knapper://personal/not-inline)`
 
-%% ⟦secret:not-comment #service⟧ %%
+%% [x](knapper://personal/not-comment) %%
 
 ```text
-⟦secret:not-fenced #service⟧
+[x](knapper://personal/not-fenced)
 ```
 
-Malformed: ⟦secret:has space #service⟧ and ⟦secret:bad #/tag⟧
+Not linked: knapper://personal/not-bare and <knapper://personal/not-autolink>
+
+Malformed: [a](knapper://Personal/upper) [b](knapper://personal/a//b)
+[c](knapper://personal/../etc) [d](knapper://personal/a%2Fb) [e](knapper://personal/has space)

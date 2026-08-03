@@ -72,41 +72,74 @@
       path: "Notes/Lit Review.md"
       title: "Lit Review"
 
-- name: obsidian / secret refs preserve location but never resolve values
+- name: obsidian / references keep their position and are never resolved
   vault: obsidian
-  args: [secrets, refs, Projects/Thesis.md, --format, json]
+  args: [refs, Projects/Thesis.md, --format, json]
+  # Thesis.md holds three real references, plus one in an inline span, one in
+  # a %%comment%%, one in a fence, a bare URI, an autolink, and five
+  # destinations that are not the grammar.
   expect:
     json_length: 3
     json_at:
       "0.path": "Projects/Thesis.md"
-      "0.id": "db/prod"
-      "0.tags.1": "日本語"
+      "0.uri": "knapper://personal/address.nihonbashi_kobunacho"
+      "0.provider": "personal"
+      "0.locator": "address.nihonbashi_kobunacho"
+      "0.label": "日本橋小舟町の住所"
       "0.line": 29
-      "0.column": 14
-    stdout_excludes: ["not-inline", "not-comment", "not-fenced", "has space", "#/tag"]
+      "0.column": 17
+    stdout_excludes:
+      - "not-inline"
+      - "not-comment"
+      - "not-fenced"
+      - "not-bare"
+      - "not-autolink"
+      - "Personal/upper"
+      - "a//b"
+      - "../etc"
+      - "a%2Fb"
+      - "has space"
 
-- name: obsidian / secret find accepts repeatable tag intersection
+- name: obsidian / references filter by provider
   vault: obsidian
-  args: [secrets, find, --tag, service, --tag, shared, --format, json]
+  args: [refs, --provider, work, --format, json]
   expect:
-    json_length: 1
-    json_at: {"0.id": "api-key"}
+    json_length: 2
+    json_at:
+      "0.uri": "knapper://work/tokens/ci.deploy"
+      "1.uri": "knapper://work/db/prod"
 
-- name: obsidian / secret paths are unique and pipeable
+- name: obsidian / reference paths are unique and pipeable
   vault: obsidian
-  args: [secrets, find, --tag, service, --format, paths]
+  args: [refs, --format, paths]
   expect:
     lines: ["Projects/Thesis.md"]
 
-- name: obsidian / context includes safe secret reference metadata
+- name: obsidian / an unusable provider name is a usage error
+  vault: obsidian
+  args: [refs, --provider, "Work"]
+  expect:
+    exit: 2
+    stderr_contains: ["Invalid provider name"]
+
+- name: obsidian / a reference is external and stays out of the link graph
+  vault: obsidian
+  args: [links, Projects/Thesis.md, --format, json]
+  # knapper:// is a scheme, so the graph treats it the way it treats https:
+  # -- as somewhere else. broken-links agrees, and says nothing about them.
+  expect:
+    stdout_excludes: ["knapper://"]
+
+- name: obsidian / context reports the references in one note
   vault: obsidian
   args: [context, Projects/Thesis.md, --format, json]
   expect:
     json_at:
-      "secret_refs.0.id": "db/prod"
-      "secret_refs.0.tags.0": "database"
-      "secret_refs.0.line": 29
-      "secret_refs.0.column": 14
+      "references.0.uri": "knapper://personal/address.nihonbashi_kobunacho"
+      "references.0.provider": "personal"
+      "references.0.locator": "address.nihonbashi_kobunacho"
+      "references.0.line": 29
+      "references.0.column": 17
 
 - name: obsidian / frontmatter reads a property
   vault: obsidian
@@ -639,6 +672,17 @@
           - "![Target](Target.png)"
           # The URL merely ends the same way.
           - "https://x.com/Target.md"
+          # So does the reference, and knapper:// is somewhere else too: the
+          # locator belongs to a provider, not to this vault's file names.
+          - "knapper://personal/Target"
+
+- name: refactor / a move leaves an external reference alone
+  vault: refactor
+  args: [move, Target.md, Archive/]
+  expect:
+    file:
+      "source.md":
+        contains: ["knapper://personal/Target"]
 
 - name: refactor / a link inside a code fence is rewritten too
   vault: refactor
@@ -682,6 +726,179 @@
     file:
       "source.md":
         contains: ["[[Target]]"]
+
+# ------------------------------------------------------ The reference broker --
+#
+# A reference names a provider; the local provider config says what runs for
+# it. These cases use `printf` and `false` as providers, because knapper is
+# provider-agnostic: a provider is whatever command the user configured, and
+# nothing in knapper knows or cares what that command talks to.
+#
+# The `providers:` key on a case is the local config the run starts with,
+# written outside the vault. `expect.providers` reads it back afterwards.
+
+- name: broker / providers are listed from the local config, not the vault
+  vault: bare
+  providers: |
+    providers:
+      personal:
+        command: [op, read, "op://Knapper/{locator}/value"]
+  args: [provider, list]
+  # Even with no knapper.config.md anywhere: the broker is not a vault
+  # command, and works from any directory.
+  expect:
+    lines: ['personal  ["op","read","op://Knapper/{locator}/value"]']
+
+- name: broker / an unconfigured machine lists nothing
+  vault: bare
+  args: [provider, list, --format, json]
+  expect:
+    json: []
+
+- name: broker / set adds a provider without disturbing the others
+  vault: bare
+  providers: |
+    providers:
+      work:
+        command: [work-tool, "{locator}"]
+  args: [provider, set, personal, --, op, read, "op://Knapper/{locator}/value"]
+  expect:
+    stdout_contains: ["personal", "providers.yaml"]
+    providers:
+      contains: ["personal:", "work:", "op://Knapper/{locator}/value", "work-tool"]
+
+- name: broker / a command that never reads the locator is refused
+  vault: bare
+  args: [provider, set, personal, --, echo, hello]
+  # Without the placeholder the command answers the same thing for every
+  # reference, which means the reference was never read.
+  expect:
+    exit: 2
+    stderr_contains: ["{locator}"]
+    providers:
+      excludes: ["personal"]
+
+- name: broker / a provider name outside the grammar is refused
+  vault: bare
+  args: [provider, set, "Personal", --, echo, "{locator}"]
+  expect:
+    exit: 2
+    stderr_contains: ["Invalid provider name"]
+
+- name: broker / remove forgets one provider and keeps the rest
+  vault: bare
+  providers: |
+    providers:
+      personal:
+        command: [op, read, "op://Knapper/{locator}/value"]
+      work:
+        command: [work-tool, "{locator}"]
+  args: [provider, remove, personal]
+  expect:
+    providers:
+      contains: ["work:"]
+      excludes: ["personal:"]
+
+- name: broker / removing a provider that was never there says so
+  vault: bare
+  args: [provider, remove, personal]
+  expect:
+    exit: 3
+    stderr_contains: ["No provider named"]
+
+- name: broker / resolve prints what the provider command wrote
+  vault: bare
+  providers: |
+    providers:
+      personal:
+        command: [printf, "%s\n", "value-of-{locator}"]
+  args: [resolve, "knapper://personal/address.home"]
+  expect:
+    lines: ["value-of-address.home"]
+
+- name: broker / every {locator} in every argument is substituted
+  vault: bare
+  providers: |
+    providers:
+      personal:
+        command: [printf, "%s|%s\n", "{locator}", "a-{locator}-b"]
+  args: [resolve, "knapper://personal/tokens/ci.deploy"]
+  expect:
+    lines: ["tokens/ci.deploy|a-tokens/ci.deploy-b"]
+
+- name: broker / a dry run prints the argv and runs nothing
+  vault: bare
+  providers: |
+    providers:
+      personal:
+        command: [false, "op://Knapper/{locator}/value"]
+  # `false` would fail if it ran, so exit 0 is the proof that it did not.
+  args: [resolve, "knapper://personal/address.home", --dry-run]
+  expect:
+    lines: ['["false","op://Knapper/address.home/value"]']
+
+- name: broker / a reference outside the grammar never reaches a provider
+  vault: bare
+  providers: |
+    providers:
+      personal:
+        command: [printf, "%s\n", "{locator}"]
+  args: [resolve, "knapper://personal/../etc/passwd"]
+  expect:
+    exit: 2
+    stderr_contains: ["knapper reference"]
+
+- name: broker / an unknown provider is its own failure
+  vault: bare
+  args: [resolve, "knapper://personal/address.home"]
+  expect:
+    exit: 3
+    stderr_contains: ["No provider named", "provider set"]
+
+- name: broker / a provider command that fails is reported as a failure
+  vault: bare
+  providers: |
+    providers:
+      personal:
+        command: [false, "{locator}"]
+  args: [resolve, "knapper://personal/address.home"]
+  expect:
+    exit: 4
+    stderr_contains: ["failed"]
+
+- name: broker / a provider that returns nothing has not resolved anything
+  vault: bare
+  providers: |
+    providers:
+      personal:
+        command: [true, "{locator}"]
+  # `true` succeeds and prints nothing. An empty value is not a value: a
+  # caller that took it would be acting on a secret it never received.
+  args: [resolve, "knapper://personal/address.home"]
+  expect:
+    exit: 4
+    stderr_contains: ["empty value"]
+
+- name: broker / a timeout has to be a positive number of seconds
+  vault: bare
+  providers: |
+    providers:
+      personal:
+        command: [printf, "%s\n", "{locator}"]
+  args: [resolve, "knapper://personal/address.home", --timeout, "0"]
+  expect:
+    exit: 2
+    stderr_contains: ["--timeout"]
+
+- name: configured / a provider declared by the vault is not a provider
+  vault: configured
+  # knapper.config.md declares `providers: fromvault: command: [touch, ...]`.
+  # It travels with the notes, so nothing in it is executable configuration:
+  # resolving through it must fail the same way an empty machine does.
+  args: [resolve, "knapper://fromvault/x"]
+  expect:
+    exit: 3
+    stderr_contains: ["No provider named"]
 
 # ---------------------------------------------------------------- The skill --
 

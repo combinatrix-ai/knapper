@@ -22,6 +22,10 @@ struct Case {
     args: Vec<String>,
     #[serde(default)]
     sorted: bool,
+    /// The local provider config the run starts with, verbatim. Executable
+    /// config never comes from a vault, so a case that needs a provider says
+    /// so here rather than in its fixture.
+    providers: Option<String>,
     #[serde(default)]
     expect: Expect,
 }
@@ -49,6 +53,9 @@ struct Expect {
     lines: Option<Vec<String>>,
     #[serde(default)]
     file: std::collections::BTreeMap<String, FileChecks>,
+    /// Checks against the local provider config after the run.
+    #[serde(default)]
+    providers: FileChecks,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -122,12 +129,21 @@ fn sorted_json(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// Where the run's provider config lives, under a config home of its own.
+fn providers_file(config_home: &Path) -> PathBuf {
+    config_home.join("knapper").join("providers.yaml")
+}
+
 /// Every failure carries the whole invocation, because a bare assertion
 /// message is not enough to act on.
-fn check(case: &Case, vault: &Path) -> Result<(), String> {
+fn check(case: &Case, vault: &Path, config_home: &Path) -> Result<(), String> {
     let output = Command::new(env!("CARGO_BIN_EXE_knapper"))
         .args(&case.args)
         .current_dir(vault)
+        // Every case gets a config home of its own, so no run can read the
+        // provider config of whoever is running the suite -- and a case that
+        // needs a provider gets exactly the one it declared.
+        .env("XDG_CONFIG_HOME", config_home)
         .output()
         .map_err(|e| format!("could not run knapper: {e}"))?;
 
@@ -255,6 +271,22 @@ fn check(case: &Case, vault: &Path) -> Result<(), String> {
         }
     }
 
+    if !e.providers.contains.is_empty() || !e.providers.excludes.is_empty() {
+        // Absent is empty: a case may assert that a provider never got
+        // written at all.
+        let body = fs::read_to_string(providers_file(config_home)).unwrap_or_default();
+        for needle in &e.providers.contains {
+            if !body.contains(needle) {
+                return fail(format!("the provider config lacks {needle:?}"));
+            }
+        }
+        for needle in &e.providers.excludes {
+            if body.contains(needle) {
+                return fail(format!("the provider config still has {needle:?}"));
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -269,7 +301,14 @@ fn contract_cases_hold() {
         let vault = dir.path().join("vault");
         copy_dir(&fixture(&case.vault), &vault);
 
-        if let Err(report) = check(case, &vault) {
+        let config_home = dir.path().join("config");
+        if let Some(declared) = &case.providers {
+            let path = providers_file(&config_home);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, declared).unwrap();
+        }
+
+        if let Err(report) = check(case, &vault, &config_home) {
             failures.push(format!("\n=== {} ===\n{report}", case.name));
         }
     }

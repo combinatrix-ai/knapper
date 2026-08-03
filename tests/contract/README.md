@@ -47,12 +47,37 @@ Assertions, all optional, all applied:
 | `stderr_excludes` | substrings that must be absent from stderr |
 | `lines` | exact stdout lines, after stripping blanks |
 | `file` | `{path: {contains: [...], excludes: [...]}}` checked after the run |
+| `providers` | `{contains: [...], excludes: [...]}` against the local provider config |
 
 Lists compared with `json` and `lines` are order-insensitive when the command
 does not promise an order; those cases set `sorted: true`.
 
 Each case runs against a **copy** of its fixture, so a case may mutate the
 vault. `file:` assertions read from that copy.
+
+## Providers
+
+Every case also gets an `XDG_CONFIG_HOME` of its own, so no run can reach the
+provider config of whoever is running the suite. A case that needs a provider
+declares one — outside the vault, because that is the rule being tested:
+
+```yaml
+- name: broker / resolve prints what the provider command wrote
+  vault: bare
+  providers: |                       # written to <tmp>/config/knapper/providers.yaml
+    providers:
+      personal:
+        command: [printf, "%s\n", "value-of-{locator}"]
+  args: [resolve, "knapper://personal/address.home"]
+  expect:
+    lines: ["value-of-address.home"]
+    providers:                       # the same file, read back after the run
+      contains: ["personal:"]
+```
+
+The provider commands in these cases are `printf`, `true` and `false`.
+knapper is provider-agnostic, so a fixture provider is just a command that
+produces known bytes.
 
 ## Fixtures
 

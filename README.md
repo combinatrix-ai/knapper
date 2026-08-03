@@ -35,7 +35,7 @@ because they require understanding the *structure* of a vault:
 - 📇 **Frontmatter** — get, set, and delete YAML fields from the shell
 - 🩺 **Vault health** — `lint` finds broken links, orphans, duplicate names, stubs, missing frontmatter
 - 🧠 **`context FILE`** — everything an LLM needs about one note, in a single call
-- 🔐 **Secret references** — locate tagged identifiers without resolving or printing secret values
+- 🔐 **External references** — `knapper://` links to values a provider command resolves, kept out of the vault
 
 It is built to survive real vaults: tags are Unicode-aware and nest
 (`#日本語` and `#parent/child` both work), and one malformed YAML header never
@@ -274,33 +274,95 @@ Templates expand on creation — both Obsidian Core Templates (`{{date}}`,
 << [[Daily/2026-07-27]] | [[Daily/2026-07-29]] >>
 ```
 
-## Secret references
+## External references
 
-knapper recognizes stable, tagged references to secrets without resolving or
-printing their values:
+Some things belong in your notes by name but not by value: an address, a
+licence key, a token. Write them as an ordinary markdown link with a
+`knapper://` destination, and the value stays wherever you already keep it:
 
 ```markdown
-住所: ⟦secret:personal.home_address #address #さいたま⟧
+住所: [日本橋小舟町の住所](knapper://personal/address.nihonbashi_kobunacho)
 ```
 
-List references in one note or across the vault, or find references carrying
-every requested tag:
+A reference is `knapper://<provider>/<locator>`. The **provider** is a name
+*you* chose — `personal`, `work`, `family` — and the **locator** is opaque:
+knapper never interprets it, it just hands it to that provider's command.
+
+### Finding references
 
 ```bash
-knapper secrets refs "Projects/application.md"
-knapper secrets refs --format json
-knapper secrets find --tag address --tag さいたま
-knapper secrets find --tag service --format paths
+knapper refs                          # every reference in the vault
+knapper refs "Projects/application.md"
+knapper refs --provider personal --format json
+knapper refs --format paths           # just the files, ready for a pipe
 ```
 
-Each result contains the vault-relative path, line, column, stable ID and
-tags. References inside fenced code, inline code and `%%comments%%` are
-ignored. `knapper context FILE --format json` includes the same safe metadata
-under `secret_refs`.
+Each result carries the vault-relative path, line, column, URI, provider,
+locator and link label. References inside fenced code, inline code and
+`%%comments%%` are ignored, as links there always are, and `knapper context
+FILE --format json` reports the same under `references`.
 
-These commands only discover references. They have no password-manager access
-and cannot reveal secret values; a broker integration can resolve the stable
-ID later without changing the markdown syntax.
+A `knapper://` link is *external*: it never becomes an edge in the link
+graph, never shows up as a broken link, and `rename` and `move` leave it
+alone — exactly like an `https://` link.
+
+### Configuring a provider
+
+What actually runs lives in `$XDG_CONFIG_HOME/knapper/providers.yaml`
+(`~/.config/knapper/providers.yaml` if that is unset) — **never** in
+`knapper.config.md`. A vault is synced, shared and cloned; a file that decides
+what gets executed must not travel with it. knapper reads no provider
+configuration from a vault, and a `providers:` block in a vault config is
+ignored.
+
+```bash
+knapper provider set personal -- op read 'op://Knapper/{locator}/value'
+knapper provider list
+knapper provider remove personal
+```
+
+```yaml
+providers:
+  personal:
+    command: [op, read, "op://Knapper/{locator}/value"]
+```
+
+`command` is **argv**, not a shell line: knapper execs it directly, so there
+is no quoting, no word splitting and no shell to escape from. Every
+`{locator}` in it — in any argument — is replaced with the reference's
+locator, and nothing else is substituted.
+
+knapper is provider-agnostic. `op` above is one user's choice; `pass`,
+`gopass`, `security`, `bw`, `gcloud secrets`, `vault read`, or a script of
+your own work the same way, because knapper knows nothing about any of them.
+
+### Resolving
+
+```bash
+knapper resolve "knapper://personal/address.nihonbashi_kobunacho"
+knapper resolve "knapper://work/tokens/ci.deploy" --dry-run    # print the argv, run nothing
+knapper resolve "knapper://work/tokens/ci.deploy" --timeout 30
+```
+
+The provider's stdout is the value. Exactly one trailing newline comes off;
+everything else, multiple lines included, is passed through byte for byte.
+stdin and stderr stay attached to your terminal, so a provider can still
+prompt for a PIN, a passphrase or a hardware key.
+
+knapper adds no newline of its own. This keeps redirection byte-exact; when
+run directly in a terminal, the next prompt may therefore follow the value.
+
+There is no default timeout — a provider may legitimately wait for you —
+`--timeout SECS` bounds the whole resolve, including the wait for provider
+stdout to close, and kills the provider process if it is still running.
+Provider commands remain responsible for any further processes they start.
+
+What knapper does *not* do: it never caches a resolved value, never writes one
+anywhere, never scans one for further references, and never puts one in a
+child process's arguments or environment. Failures are distinguishable by exit
+status: **2** for a malformed reference or bad usage, **3** for a provider that
+is not configured, **4** for a provider command that would not run, failed,
+timed out, or returned nothing usable.
 
 ## Command reference
 
@@ -323,7 +385,9 @@ ID later without changing the markdown syntax.
 | `knapper daily [DATE]` | Create or get a daily note |
 | `knapper frontmatter get / set / delete` | Read and write YAML frontmatter |
 | `knapper tags` | List tags, or find files by tag with `--find` |
-| `knapper secrets refs / find` | Locate tagged secret references without resolving values |
+| `knapper refs [FILE]` | Find `knapper://` references, optionally for one provider |
+| `knapper resolve REF` | Read one reference's value through its provider's command |
+| `knapper provider list / set / remove` | Configure those commands, outside the vault |
 | `knapper skill` | Print the embedded agent skill, or `--install` it |
 | `knapper self-update` | Replace this binary with the newest release |
 

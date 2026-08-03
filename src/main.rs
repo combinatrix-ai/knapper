@@ -15,8 +15,9 @@ mod note;
 mod notes_cmd;
 mod org;
 mod parser;
+mod providers;
 mod query;
-mod secrets;
+mod refs;
 mod skill;
 mod tasks;
 mod templater;
@@ -117,20 +118,28 @@ enum TaskCommand {
 }
 
 #[derive(Subcommand)]
-enum SecretsCommand {
-    /// List secret references without resolving their values.
-    Refs {
-        file: Option<String>,
+enum ProviderCommand {
+    /// List the configured providers and the commands they run.
+    List {
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
-    /// Find secret references carrying every requested tag.
-    Find {
-        #[arg(long = "tag", required = true, help = "Tag to match (repeatable)")]
-        tag: Vec<String>,
-        #[arg(short = 'f', long = "format", default_value = "text")]
-        format: String,
+    /// Define or replace one provider's command.
+    Set {
+        name: String,
+        /// The command to run, after `--`. It is argv, not a shell line, and
+        /// every `{locator}` in it is replaced with the reference's locator.
+        #[arg(
+            last = true,
+            required = true,
+            num_args = 1..,
+            value_name = "COMMAND",
+            help = "Command after `--`, e.g. -- op read 'op://Vault/{locator}/value'"
+        )]
+        command: Vec<String>,
     },
+    /// Forget one provider.
+    Remove { name: String },
 }
 
 // A clap command enum is built once, at startup, from argv. The size of its
@@ -353,9 +362,26 @@ enum Command {
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
-    /// Inspect secret references without reading secret values.
+    /// List external references (knapper://provider/locator) in the vault.
+    Refs {
+        file: Option<String>,
+        #[arg(long = "provider", help = "Only references naming this provider")]
+        provider: Option<String>,
+        #[arg(short = 'f', long = "format", default_value = "text")]
+        format: String,
+    },
+    /// Read the value behind one reference, through its provider's command.
+    Resolve {
+        #[arg(value_name = "REFERENCE", help = "knapper://<provider>/<locator>")]
+        reference: String,
+        #[arg(long = "timeout", value_name = "SECS", help = "Give up after SECS")]
+        timeout: Option<f64>,
+        #[arg(long = "dry-run", help = "Print the command instead of running it")]
+        dry_run: bool,
+    },
+    /// Configure the commands that resolve references.
     #[command(subcommand)]
-    Secrets(SecretsCommand),
+    Provider(ProviderCommand),
 }
 
 fn main() {
@@ -365,16 +391,52 @@ fn main() {
     }
 }
 
+/// A broker failure carries the exit status that tells a malformed reference
+/// (2) from an unknown provider (3) from a command that would not run (4).
+/// Reporting it here keeps `exit()` out of the modules, next to the usage
+/// errors the other commands already report this way.
+fn broker(result: std::result::Result<(), providers::Failure>) -> Result<()> {
+    if let Err(err) = result {
+        eprintln!("Error: {err}");
+        std::process::exit(err.exit_code());
+    }
+    Ok(())
+}
+
 fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    // Neither of these reads a vault, and both have to work where no config
+    // None of these reads a vault, and the first has to work where no config
     // exists yet -- `init` is how a config comes to exist at all, so loading
-    // one first would make it impossible to run.
+    // one first would make it impossible to run. The broker commands are
+    // about the local provider config rather than about any note, so they
+    // work from anywhere too.
     match &cli.command {
         Command::Init { force } => return notes_cmd::init(*force),
         Command::Skill { install } => return skill::run(*install),
         Command::SelfUpdate { check, yes } => return update::run(*check, *yes),
+        Command::Provider(ProviderCommand::List { format }) => {
+            return broker(providers::list(format))
+        }
+        Command::Provider(ProviderCommand::Set { name, command }) => {
+            return broker(providers::set(name, command))
+        }
+        Command::Provider(ProviderCommand::Remove { name }) => {
+            return broker(providers::remove(name))
+        }
+        Command::Resolve {
+            reference,
+            timeout,
+            dry_run,
+        } => {
+            return broker(providers::resolve(
+                reference,
+                &providers::ResolveOptions {
+                    timeout: *timeout,
+                    dry_run: *dry_run,
+                },
+            ))
+        }
         _ => {}
     }
 
@@ -399,7 +461,11 @@ fn run() -> Result<()> {
         } => commands::orphans(&config, &format, include_special),
         Command::Hubs { limit, format } => commands::hubs(&config, limit, &format),
         Command::BrokenLinks { format } => commands::broken_links(&config, &format),
-        Command::Init { .. } | Command::Skill { .. } | Command::SelfUpdate { .. } => {
+        Command::Init { .. }
+        | Command::Skill { .. }
+        | Command::SelfUpdate { .. }
+        | Command::Provider(..)
+        | Command::Resolve { .. } => {
             unreachable!("dispatched above")
         }
         Command::Context {
@@ -570,11 +636,20 @@ fn run() -> Result<()> {
         Command::Tags { file, find, format } => {
             commands::tags(&config, file.as_deref(), find.as_deref(), &format)
         }
-        Command::Secrets(SecretsCommand::Refs { file, format }) => {
-            secrets::refs(&config, file.as_deref(), &format)
-        }
-        Command::Secrets(SecretsCommand::Find { tag, format }) => {
-            secrets::find(&config, &tag, &format)
+        Command::Refs {
+            file,
+            provider,
+            format,
+        } => {
+            // A rejected provider name is a usage error, which is exit 2. A
+            // missing file is not, and reports like every other file command.
+            if let Some(name) = &provider {
+                broker(
+                    refs::validate_provider(name)
+                        .map_err(|err| providers::Failure::Usage(err.to_string())),
+                )?;
+            }
+            refs::refs(&config, file.as_deref(), provider.as_deref(), &format)
         }
     }
 }

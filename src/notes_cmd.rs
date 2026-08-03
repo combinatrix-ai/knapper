@@ -87,20 +87,25 @@ pub fn context(config: &Config, file: &str, format: &str, options: &ContextOptio
         out.insert("tags".into(), json!(tags));
     }
 
-    let secret_refs = crate::secrets::parse_refs(&relative, &content);
-    if !secret_refs.is_empty() {
-        let items: Vec<Value> = secret_refs
+    // External references are not links -- they point outside the vault, and
+    // nothing here resolves them -- so they would otherwise be invisible to a
+    // caller that has only this one aggregated view.
+    let references = crate::refs::parse_refs(&relative, &content);
+    if !references.is_empty() {
+        let items: Vec<Value> = references
             .iter()
             .map(|reference| {
                 json!({
-                    "id": &reference.id,
-                    "tags": &reference.tags,
+                    "uri": &reference.uri,
+                    "provider": &reference.provider,
+                    "locator": &reference.locator,
+                    "label": &reference.label,
                     "line": reference.line,
                     "column": reference.column,
                 })
             })
             .collect();
-        out.insert("secret_refs".into(), json!(items));
+        out.insert("references".into(), json!(items));
     }
 
     if !options.no_tasks {

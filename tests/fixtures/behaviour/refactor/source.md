@@ -12,6 +12,7 @@ Things that merely look like links to it, and must not be rewritten:
 
 - an image: ![Target](Target.png)
 - an external URL that ends the same way: [ext](https://x.com/Target.md)
+- an external reference that ends the same way: [ref](knapper://personal/Target)
 - a fenced mention:
 
 ```

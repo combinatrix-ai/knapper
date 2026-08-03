@@ -174,29 +174,69 @@ knapper tags --find cli      # files carrying a tag
 
 Tags are Unicode-aware and nest: `#日本語` and `#parent/child` both work.
 
-## Secret references
+## External references
 
-Secret references are stable IDs with searchable, non-secret tags:
+A note can point at a value it does not contain -- an address, a key, a token
+-- with an ordinary markdown link:
 
 ```markdown
-⟦secret:personal.home_address #address #さいたま⟧
+[日本橋小舟町の住所](knapper://personal/address.nihonbashi_kobunacho)
 ```
 
-Discover them without resolving or printing secret values:
+The shape is `knapper://<provider>/<locator>`. The provider is a name the user
+chose, not a tool; the locator is opaque.
+
+Find them:
 
 ```bash
-knapper secrets refs FILE --format json
-knapper secrets refs --format paths
-knapper secrets find --tag address --tag さいたま --format json
+knapper refs FILE --format json
+knapper refs --provider personal --format json
+knapper refs --format paths
 ```
 
-Results include `path`, `line`, `column`, `id`, and `tags`. Repeated `--tag`
-filters are an intersection. References inside fenced code, inline code, and
-`%%comments%%` are ignored. `knapper context FILE --format json` also includes
-this metadata as `secret_refs`.
+Results include `path`, `line`, `column`, `uri`, `provider`, `locator` and
+`label`. References inside fenced code, inline code and `%%comments%%` are
+ignored, and `knapper context FILE --format json` reports the same under
+`references`. A `knapper://` link is external: it is not part of the link
+graph and `rename` and `move` do not touch it.
 
-These commands never resolve secret values. Do not claim that a reference is
-available from a password manager merely because knapper can locate it.
+Read one value:
+
+```bash
+knapper resolve "knapper://personal/address.nihonbashi_kobunacho"
+knapper resolve "knapper://work/tokens/ci.deploy" --dry-run   # print the argv, run nothing
+knapper resolve "knapper://work/tokens/ci.deploy" --timeout 30
+```
+
+`resolve` runs the command the user configured for that provider and prints
+its stdout, with one trailing newline removed and no newline added. It exits
+**2** on a malformed reference, **3** when the provider is not configured, and
+**4** when the command fails. It may prompt the user interactively -- for a
+PIN, a passphrase or a hardware key -- so run it in the foreground.
+
+There is no default timeout. `--timeout SECS` bounds the whole resolve,
+including the wait for provider stdout to close; a provider remains responsible
+for any further processes it starts.
+
+Provider commands live in `$XDG_CONFIG_HOME/knapper/providers.yaml`
+(`~/.config/knapper/providers.yaml` by default), never in the vault:
+
+```bash
+knapper provider list
+knapper provider set personal -- op read 'op://Knapper/{locator}/value'
+knapper provider remove personal
+```
+
+`command` is argv, not a shell line; every `{locator}` in it is replaced.
+knapper is provider-agnostic and knows nothing about any password manager --
+`op` above is only an example, and `pass`, `security`, `bw`, `vault` or a
+local script work the same way.
+
+Rules to follow: `knapper refs` shows only *where* a reference is, never what
+it is worth -- do not claim a value from it. Never write a resolved value into
+a note, a commit, a log or a file; knapper itself does not cache or store one.
+Never propose putting provider commands in `knapper.config.md`; the vault is
+not a place executable configuration can come from.
 
 ## Vault health
 

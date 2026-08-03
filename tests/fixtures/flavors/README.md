@@ -37,7 +37,9 @@ is why it lives here rather than in a test file.
 
 ## Intent per flavor
 
-- **obsidian** — the reference flavor; exercises every supported construct.
+- **obsidian** — the reference flavor; exercises every supported construct,
+  including `knapper://` external references and the destinations that look
+  like one but are not.
 - **foam** — proves both link syntaxes coexist in one vault.
 - **zettelkasten** — filenames that are IDs, not titles.
 - **markdown-plain** — a vault with no wikilinks at all, which is the case
