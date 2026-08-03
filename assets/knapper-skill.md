@@ -1,6 +1,6 @@
 ---
 name: knapper
-description: Headless CLI for a directory of markdown notes. Use when creating daily notes, querying links and backlinks, reading/writing frontmatter, managing tasks, or renaming/moving notes without breaking links - especially where no note-taking app is running. Triggers on: daily note, backlinks, wikilinks, frontmatter, tasks, vault, knowledge base, markdown notes, Obsidian, org-mode.
+description: Headless CLI for a directory of markdown notes. Use when creating daily notes, querying links and backlinks, reading/writing frontmatter, managing tasks, renaming/moving notes without breaking links, or resolving knapper:// external references through a configured provider - especially where no note-taking app is running. Triggers on: daily note, backlinks, wikilinks, frontmatter, tasks, vault, knowledge base, markdown notes, Obsidian, org-mode, knapper://, external reference, secret reference, resolve.
 ---
 
 # knapper
@@ -8,7 +8,8 @@ description: Headless CLI for a directory of markdown notes. Use when creating d
 One binary that reads and writes a directory of markdown notes directly -- an
 Obsidian vault, a Foam or Dendron workspace, a Zettelkasten, an org-roam
 directory, or any folder of `.md` files that has grown links. Nothing needs to
-be running, and nothing here touches the network.
+be running. knapper itself touches the network only for `self-update`; a
+provider command configured for `resolve` may open its own connection.
 
 Use it for the operations that need to understand a vault's *structure*, which
 plain shell tools cannot do: the link graph, link-preserving renames, tasks,
@@ -183,8 +184,12 @@ A note can point at a value it does not contain -- an address, a key, a token
 [日本橋小舟町の住所](knapper://personal/address.nihonbashi_kobunacho)
 ```
 
-The shape is `knapper://<provider>/<locator>`. The provider is a name the user
-chose, not a tool; the locator is opaque.
+The shape is `knapper://<provider>/<locator>`. The provider is a lowercase
+name the user chose, not a tool; it uses ASCII letters, digits, `_`, and `-`.
+The locator is opaque but its alphabet is fixed: ASCII letters, digits, `.`,
+`_`, `-`, `/`, with a maximum of 128 characters and no empty, `.`, or `..`
+segments. A destination outside that grammar is silently not a reference; if
+an expected link is missing from `refs`, check its spelling first.
 
 Find them:
 
@@ -211,8 +216,10 @@ knapper resolve "knapper://work/tokens/ci.deploy" --timeout 30
 `resolve` runs the command the user configured for that provider and prints
 its stdout, with one trailing newline removed and no newline added. It exits
 **2** on a malformed reference, **3** when the provider is not configured, and
-**4** when the command fails. It may prompt the user interactively -- for a
-PIN, a passphrase or a hardware key -- so run it in the foreground.
+**4** when the command would not run, failed, timed out, or returned nothing
+usable. Values must be UTF-8 text of at most 1 MiB. It may prompt the user
+interactively -- for a PIN, a passphrase or a hardware key -- so run it in the
+foreground.
 
 There is no default timeout. `--timeout SECS` bounds the whole resolve,
 including the wait for provider stdout to close; a provider remains responsible
@@ -224,6 +231,7 @@ Provider commands live in `$XDG_CONFIG_HOME/knapper/providers.yaml`
 ```bash
 knapper provider list
 knapper provider set personal -- op read 'op://Knapper/{locator}/value'
+knapper provider set family -- pass show 'knapper/{locator}'
 knapper provider remove personal
 ```
 
@@ -252,7 +260,8 @@ knapper self-update --check
 knapper self-update
 ```
 
-This is the only command that opens a network connection.
+This is the only command where knapper itself opens a network connection; a
+provider command configured for `resolve` may open its own.
 
 ## Notes that matter in practice
 

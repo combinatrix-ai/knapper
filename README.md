@@ -4,9 +4,10 @@
 
 knapper reads and writes the note files directly. No app to launch, no daemon,
 no server, no index to build, no API keys — one binary, and nothing to install
-beside it. Nothing it does touches the network, with one deliberate exception:
-`knapper self-update`, which only runs when you ask for it by name. It
-resolves **both** link syntaxes,
+beside it. knapper itself touches the network only for `self-update`, which
+runs only when you ask for it by name. `knapper resolve` can execute a provider
+command you configured; whether that command uses the network is up to the
+provider you chose. knapper resolves **both** link syntaxes,
 `[[wikilinks]]` and `[inline](links.md)`, and reads `.org` files too, so it
 works on an Obsidian vault, a Foam or Dendron workspace, a Zettelkasten, an
 org-roam directory, or any folder of notes that has grown links.
@@ -285,8 +286,14 @@ licence key, a token. Write them as an ordinary markdown link with a
 ```
 
 A reference is `knapper://<provider>/<locator>`. The **provider** is a name
-*you* chose — `personal`, `work`, `family` — and the **locator** is opaque:
-knapper never interprets it, it just hands it to that provider's command.
+*you* chose — `personal`, `work`, `family` — and the **locator** is opaque to
+knapper: it is never decoded or normalised, and reaches the provider command
+as written. Both halves still have a deliberate grammar. Provider names are
+lowercase letters, digits, `_` and `-`; locators use ASCII letters, digits,
+`.`, `_`, `-` and `/`, are at most 128 characters, and have no empty, `.` or
+`..` segments. A destination outside that grammar is not a reference: `refs`
+will not list it and `resolve` will refuse it. Keep names romanised —
+`address.nihonbashi_kobunacho`, not `住所`.
 
 ### Finding references
 
@@ -317,6 +324,7 @@ ignored.
 
 ```bash
 knapper provider set personal -- op read 'op://Knapper/{locator}/value'
+knapper provider set family -- pass show 'knapper/{locator}'
 knapper provider list
 knapper provider remove personal
 ```
@@ -345,7 +353,10 @@ knapper resolve "knapper://work/tokens/ci.deploy" --timeout 30
 ```
 
 The provider's stdout is the value. Exactly one trailing newline comes off;
-everything else, multiple lines included, is passed through byte for byte.
+after that, the remaining text, including multiple lines, is passed through
+unchanged. A value must be UTF-8 text of at most 1 MiB — a reference names a
+credential or an address, not a payload; anything larger or binary is refused
+with exit 4.
 stdin and stderr stay attached to your terminal, so a provider can still
 prompt for a PIN, a passphrase or a hardware key.
 
