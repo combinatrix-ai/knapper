@@ -174,6 +174,30 @@ knapper tags --find cli      # files carrying a tag
 
 Tags are Unicode-aware and nest: `#日本語` and `#parent/child` both work.
 
+## Secret references
+
+Secret references are stable IDs with searchable, non-secret tags:
+
+```markdown
+⟦secret:personal.home_address #address #さいたま⟧
+```
+
+Discover them without resolving or printing secret values:
+
+```bash
+knapper secrets refs FILE --format json
+knapper secrets refs --format paths
+knapper secrets find --tag address --tag さいたま --format json
+```
+
+Results include `path`, `line`, `column`, `id`, and `tags`. Repeated `--tag`
+filters are an intersection. References inside fenced code, inline code, and
+`%%comments%%` are ignored. `knapper context FILE --format json` also includes
+this metadata as `secret_refs`.
+
+These commands never resolve secret values. Do not claim that a reference is
+available from a password manager merely because knapper can locate it.
+
 ## Vault health
 
 ```bash

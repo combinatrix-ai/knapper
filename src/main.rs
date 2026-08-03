@@ -16,6 +16,7 @@ mod notes_cmd;
 mod org;
 mod parser;
 mod query;
+mod secrets;
 mod skill;
 mod tasks;
 mod templater;
@@ -112,6 +113,23 @@ enum TaskCommand {
         file: Option<String>,
         #[arg(long = "partial")]
         partial: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SecretsCommand {
+    /// List secret references without resolving their values.
+    Refs {
+        file: Option<String>,
+        #[arg(short = 'f', long = "format", default_value = "text")]
+        format: String,
+    },
+    /// Find secret references carrying every requested tag.
+    Find {
+        #[arg(long = "tag", required = true, help = "Tag to match (repeatable)")]
+        tag: Vec<String>,
+        #[arg(short = 'f', long = "format", default_value = "text")]
+        format: String,
     },
 }
 
@@ -335,6 +353,9 @@ enum Command {
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
+    /// Inspect secret references without reading secret values.
+    #[command(subcommand)]
+    Secrets(SecretsCommand),
 }
 
 fn main() {
@@ -548,6 +569,12 @@ fn run() -> Result<()> {
         }
         Command::Tags { file, find, format } => {
             commands::tags(&config, file.as_deref(), find.as_deref(), &format)
+        }
+        Command::Secrets(SecretsCommand::Refs { file, format }) => {
+            secrets::refs(&config, file.as_deref(), &format)
+        }
+        Command::Secrets(SecretsCommand::Find { tag, format }) => {
+            secrets::find(&config, &tag, &format)
         }
     }
 }

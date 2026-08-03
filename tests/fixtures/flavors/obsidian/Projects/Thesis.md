@@ -25,3 +25,16 @@ Inline `[[Nor This]]` too.
 - [ ] review methods ⏳ 2026-08-05 🛫 2026-08-02
 - [x] outline ✅ 2026-07-20
 - [/] methods section
+
+Credentials: ⟦secret:db/prod #database #日本語⟧
+Services: ⟦secret:api-key #service #shared⟧ and ⟦secret:token.v2 #service⟧
+
+`Inline ⟦secret:not-inline #service⟧`
+
+%% ⟦secret:not-comment #service⟧ %%
+
+```text
+⟦secret:not-fenced #service⟧
+```
+
+Malformed: ⟦secret:has space #service⟧ and ⟦secret:bad #/tag⟧

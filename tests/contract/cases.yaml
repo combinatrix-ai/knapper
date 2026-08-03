@@ -72,6 +72,42 @@
       path: "Notes/Lit Review.md"
       title: "Lit Review"
 
+- name: obsidian / secret refs preserve location but never resolve values
+  vault: obsidian
+  args: [secrets, refs, Projects/Thesis.md, --format, json]
+  expect:
+    json_length: 3
+    json_at:
+      "0.path": "Projects/Thesis.md"
+      "0.id": "db/prod"
+      "0.tags.1": "日本語"
+      "0.line": 29
+      "0.column": 14
+    stdout_excludes: ["not-inline", "not-comment", "not-fenced", "has space", "#/tag"]
+
+- name: obsidian / secret find accepts repeatable tag intersection
+  vault: obsidian
+  args: [secrets, find, --tag, service, --tag, shared, --format, json]
+  expect:
+    json_length: 1
+    json_at: {"0.id": "api-key"}
+
+- name: obsidian / secret paths are unique and pipeable
+  vault: obsidian
+  args: [secrets, find, --tag, service, --format, paths]
+  expect:
+    lines: ["Projects/Thesis.md"]
+
+- name: obsidian / context includes safe secret reference metadata
+  vault: obsidian
+  args: [context, Projects/Thesis.md, --format, json]
+  expect:
+    json_at:
+      "secret_refs.0.id": "db/prod"
+      "secret_refs.0.tags.0": "database"
+      "secret_refs.0.line": 29
+      "secret_refs.0.column": 14
+
 - name: obsidian / frontmatter reads a property
   vault: obsidian
   args: [frontmatter, get, Projects/Thesis.md, status]

@@ -87,6 +87,22 @@ pub fn context(config: &Config, file: &str, format: &str, options: &ContextOptio
         out.insert("tags".into(), json!(tags));
     }
 
+    let secret_refs = crate::secrets::parse_refs(&relative, &content);
+    if !secret_refs.is_empty() {
+        let items: Vec<Value> = secret_refs
+            .iter()
+            .map(|reference| {
+                json!({
+                    "id": &reference.id,
+                    "tags": &reference.tags,
+                    "line": reference.line,
+                    "column": reference.column,
+                })
+            })
+            .collect();
+        out.insert("secret_refs".into(), json!(items));
+    }
+
     if !options.no_tasks {
         let filters = crate::tasks::Filters {
             include_done: true,

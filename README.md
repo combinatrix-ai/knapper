@@ -35,6 +35,7 @@ because they require understanding the *structure* of a vault:
 - 📇 **Frontmatter** — get, set, and delete YAML fields from the shell
 - 🩺 **Vault health** — `lint` finds broken links, orphans, duplicate names, stubs, missing frontmatter
 - 🧠 **`context FILE`** — everything an LLM needs about one note, in a single call
+- 🔐 **Secret references** — locate tagged identifiers without resolving or printing secret values
 
 It is built to survive real vaults: tags are Unicode-aware and nest
 (`#日本語` and `#parent/child` both work), and one malformed YAML header never
@@ -273,6 +274,34 @@ Templates expand on creation — both Obsidian Core Templates (`{{date}}`,
 << [[Daily/2026-07-27]] | [[Daily/2026-07-29]] >>
 ```
 
+## Secret references
+
+knapper recognizes stable, tagged references to secrets without resolving or
+printing their values:
+
+```markdown
+住所: ⟦secret:personal.home_address #address #さいたま⟧
+```
+
+List references in one note or across the vault, or find references carrying
+every requested tag:
+
+```bash
+knapper secrets refs "Projects/application.md"
+knapper secrets refs --format json
+knapper secrets find --tag address --tag さいたま
+knapper secrets find --tag service --format paths
+```
+
+Each result contains the vault-relative path, line, column, stable ID and
+tags. References inside fenced code, inline code and `%%comments%%` are
+ignored. `knapper context FILE --format json` includes the same safe metadata
+under `secret_refs`.
+
+These commands only discover references. They have no password-manager access
+and cannot reveal secret values; a broker integration can resolve the stable
+ID later without changing the markdown syntax.
+
 ## Command reference
 
 | Command | What it does |
@@ -294,6 +323,7 @@ Templates expand on creation — both Obsidian Core Templates (`{{date}}`,
 | `knapper daily [DATE]` | Create or get a daily note |
 | `knapper frontmatter get / set / delete` | Read and write YAML frontmatter |
 | `knapper tags` | List tags, or find files by tag with `--find` |
+| `knapper secrets refs / find` | Locate tagged secret references without resolving values |
 | `knapper skill` | Print the embedded agent skill, or `--install` it |
 | `knapper self-update` | Replace this binary with the newest release |
 
