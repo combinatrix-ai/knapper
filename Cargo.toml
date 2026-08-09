@@ -24,6 +24,9 @@ chrono = "0.4"
 anyhow = "1"
 self_update = { version = "0.44", default-features = false, features = ["archive-tar", "compression-flate2", "ureq", "rustls"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # Vault-level behaviour is only real against a directory of files, so the
 # tests that cover it build one.

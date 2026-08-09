@@ -326,7 +326,8 @@ fn write_value(value: &str) -> Result<()> {
 }
 
 fn run(provider: &str, argv: &[String], timeout: Option<Duration>) -> Result<String> {
-    let mut child = Command::new(&argv[0])
+    let mut command = Command::new(&argv[0]);
+    command
         .args(&argv[1..])
         // stdin and stderr stay attached to the terminal: a provider may need
         // to prompt for a PIN, a passphrase or a touch, and that prompt has
@@ -334,14 +335,20 @@ fn run(provider: &str, argv: &[String], timeout: Option<Duration>) -> Result<Str
         // only stdout becomes the value.
         .stdin(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(|err| {
-            Failure::Execution(format!(
-                "Cannot run the command for provider {provider:?} ({:?}): {err}",
-                argv[0]
-            ))
-        })?;
+        .stdout(Stdio::piped());
+
+    // A provider may start descendants which inherit its stdout. Give every
+    // provider its own process group so a timeout can stop that whole tree,
+    // rather than killing only the direct child and then waiting for a
+    // descendant to close the captured pipe.
+    let has_process_group = configure_process_group(&mut command);
+
+    let mut child = command.spawn().map_err(|err| {
+        Failure::Execution(format!(
+            "Cannot run the command for provider {provider:?} ({:?}): {err}",
+            argv[0]
+        ))
+    })?;
 
     // Read on another thread. A provider that writes more than fits in the
     // pipe buffer would block on the write while knapper blocked on the
@@ -367,7 +374,9 @@ fn run(provider: &str, argv: &[String], timeout: Option<Duration>) -> Result<Str
     // `--timeout` by keeping the pipe open.
     let deadline = timeout.and_then(|limit| Instant::now().checked_add(limit));
     let status = match (deadline, timeout) {
-        (Some(deadline), Some(limit)) => wait_until(&mut child, deadline, limit, provider)?,
+        (Some(deadline), Some(limit)) => {
+            wait_until(&mut child, deadline, limit, provider, has_process_group)?
+        }
         _ => wait(&mut child)?,
     };
 
@@ -425,12 +434,56 @@ fn wait(child: &mut Child) -> Result<ExitStatus> {
         .map_err(|err| Failure::Execution(format!("Cannot wait for provider command: {err}")))
 }
 
+/// A separate process group lets a non-interactive timeout kill descendants.
+/// Do not move an interactive provider out of the terminal's foreground group:
+/// a provider reading a PIN or passphrase from the TTY could otherwise be
+/// stopped by the terminal as a background reader.
+fn configure_process_group(_command: &mut Command) -> bool {
+    #[cfg(unix)]
+    {
+        use std::io::IsTerminal;
+        use std::os::unix::process::CommandExt;
+
+        if !std::io::stdin().is_terminal() {
+            _command.process_group(0);
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Stop the provider and everything it started. On Unix the child is the
+/// leader of the process group created in `run`; killing only that leader can
+/// leave a shell's descendants holding stdout open until their natural exit.
+fn kill_provider(child: &mut Child, _has_process_group: bool) {
+    #[cfg(unix)]
+    {
+        if _has_process_group {
+            let process_group = -(child.id() as i32);
+            // SAFETY: `process_group` names the process group created for this
+            // still-live child. A negative pid asks POSIX kill(2) to signal
+            // every member of that group, and SIGKILL requires no signal
+            // handler state.
+            if unsafe { libc::kill(process_group, libc::SIGKILL) } == 0 {
+                return;
+            }
+        }
+    }
+
+    // Windows has no POSIX process groups, and the Unix group signal can fail
+    // if the child exited between `try_wait` and this call. Killing the direct
+    // child remains the safe fallback in both cases.
+    let _ = child.kill();
+}
+
 /// Wait for the child, giving up after `limit`.
 fn wait_until(
     child: &mut Child,
     deadline: Instant,
     limit: Duration,
     provider: &str,
+    has_process_group: bool,
 ) -> Result<ExitStatus> {
     loop {
         match child.try_wait() {
@@ -448,7 +501,7 @@ fn wait_until(
             // Kill, then reap: a killed child nobody waits for stays a
             // zombie for as long as knapper runs. Dropping our end of the
             // pipe afterwards releases the reader thread.
-            let _ = child.kill();
+            kill_provider(child, has_process_group);
             let _ = child.wait();
             return Err(Failure::Execution(format!(
                 "The command for provider {provider:?} timed out after {}s",
