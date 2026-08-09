@@ -522,6 +522,41 @@ tasks:
 The generated file documents the rest, including custom task statuses.
 Nothing in it is Obsidian-specific.
 
+### Links that are meant to stay unresolved
+
+A vault that came from somewhere else carries links that will never resolve
+and are not mistakes — a tag page from an import, a name a generator emitted.
+Thousands of them in a lint report bury the broken links that are real, so the
+vault names them once:
+
+```yaml
+ignore_links:
+  - Daily Tasks
+  - Habits
+  - Archive/Old Index
+```
+
+They then go unreported by `knapper lint`, `knapper broken-links` and
+`query --where broken>0` alike — the three read the same graph, so a link is
+ignored by all three or by none.
+
+The matching is deliberately narrow, because an ignore that reached too far
+would hide a real mistake:
+
+- An entry matches a **whole link target**, never a substring. `Daily Tasks`
+  says nothing about `[[Daily Tasks Archive]]` or `[[Sub/Daily Tasks]]`.
+- Comparison is **case-insensitive**, matching how knapper resolves links.
+- The target compared is the one knapper resolves, so `[[Daily Tasks]]`,
+  `[[Daily Tasks#2026]]`, `[[Daily Tasks|やること]]` and
+  `[Daily Tasks](Daily%20Tasks.md)` are all the same entry.
+- An entry may be written the way the link is written in a note:
+  `[[Habits]]`, `Habits.md` and `Habits` are equivalent.
+- A **path-qualified** link is its own target. To ignore `[[Archive/Old
+  Index]]`, write `Archive/Old Index`.
+- `exclude` and `ignore_links` answer different questions: `exclude` hides
+  notes from every command, `ignore_links` only stops a link target from being
+  called broken.
+
 ## Compatibility
 
 knapper works on any folder of markdown, but each ecosystem has its own

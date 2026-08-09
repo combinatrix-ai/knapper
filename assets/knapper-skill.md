@@ -318,5 +318,9 @@ provider command configured for `resolve` may open its own.
   do not appear in the graph.
 - `knapper.config.md` can `exclude:` whole subtrees (imported archives,
   generated logs). Every command honours it.
+- `knapper.config.md` can also `ignore_links:` link targets that are meant to
+  stay unresolved. `lint`, `broken-links` and `query --where broken>0` stop
+  reporting them. An entry matches a whole target, case-insensitively; it is
+  never a substring, and a path-qualified link needs its path written out.
 - `.org` files are read by a dedicated parser, including `[[id:...]]` and
   global `[[*Heading]]` links.

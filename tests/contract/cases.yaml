@@ -578,6 +578,33 @@
   expect:
     stdout_contains: ["Real > Section A:"]
 
+# ------------------------------------------- Intentionally unresolved links --
+
+- name: ignorelinks / a configured target is not reported as broken
+  vault: ignorelinks
+  args: [broken-links, --format, json]
+  # Journal.md writes each ignored target bare, with an anchor, with a display
+  # text, in lower case, as a markdown link and path-qualified. None is a
+  # finding. Other.md's three links only resemble them, and all three stay.
+  expect:
+    json:
+      - file: Other.md
+        broken_links: ["Daily Tasks Archive", "Sub/Daily Tasks", "Missing Note"]
+
+- name: ignorelinks / lint counts what broken-links reports
+  vault: ignorelinks
+  args: [lint, --check, broken-links, --format, json]
+  expect:
+    json_at:
+      summary.broken_links: 3
+    stdout_excludes: ["Journal.md"]
+
+- name: ignorelinks / the query field agrees with both
+  vault: ignorelinks
+  args: [query, --where, broken>0, --format, paths]
+  expect:
+    lines: ["Other.md"]
+
 # ------------------------------------------------- Reading around a match --
 
 - name: obsidian / backlinks can show the lines around a match

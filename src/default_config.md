@@ -5,6 +5,9 @@ template_engine: templater
 # exclude:                # subtrees no whole-vault command should read
 #   - Archives/
 #   - logs/
+# ignore_links:           # link targets that are meant to stay unresolved
+#   - Daily Tasks         # matched whole, case-insensitively, never as a
+#   - Archive/Old Index   # substring; write the path to ignore a path link
 daily_notes:
   folder: Daily
   template: Templates/daily.md
@@ -32,6 +35,14 @@ tasks:
 # Knapper Configuration
 
 This is the configuration file for knapper CLI.
+
+## Links
+
+- **ignore_links**: Link targets this vault never intends to resolve. They stop
+  being reported by `knapper lint`, `knapper broken-links` and `query`'s
+  `broken` field. An entry matches a whole link target, case-insensitively,
+  and may be written the way the link is written in a note (`[[Habits]]`,
+  `Habits.md` and `Habits` are the same entry).
 
 ## Tasks
 

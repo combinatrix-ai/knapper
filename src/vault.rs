@@ -25,6 +25,7 @@ pub struct Config {
     pub template_engine: String,
     pub flavor: String,
     pub exclude: Vec<String>,
+    pub ignore_links: Vec<String>,
     pub daily_folder: String,
     pub daily_template: String,
     pub daily_format: String,
@@ -45,6 +46,7 @@ impl Default for Config {
             template_engine: "templater".into(),
             flavor: "markdown".into(),
             exclude: Vec::new(),
+            ignore_links: Vec::new(),
             daily_folder: "Daily".into(),
             daily_template: "Templates/daily.md".into(),
             daily_format: "YYYY-MM-DD".into(),
@@ -167,6 +169,7 @@ pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Resu
         template_engine: get_str("template_engine", "templater"),
         flavor: get_str("flavor", "markdown").to_ascii_lowercase(),
         exclude: as_string_list(get("exclude")),
+        ignore_links: as_string_list(get("ignore_links")),
         daily_folder: daily_get("folder", "Daily"),
         daily_template: daily_get("template", "Templates/daily.md"),
         daily_format: daily_get("format", "YYYY-MM-DD"),
@@ -408,6 +411,35 @@ mod tests {
             )
             .unwrap();
             assert_eq!(config.exclude, excludes(&expected), "yaml: {yaml:?}");
+        }
+    }
+
+    /// `ignore_links` names link targets rather than paths, but a vault
+    /// declares it the same way it declares `exclude`.
+    #[test]
+    fn ignore_links_is_read_as_either_a_scalar_or_a_list() {
+        for (yaml, expected) in [
+            (
+                "ignore_links:\n  - Daily Tasks\n  - \"[[Habits]]\"",
+                vec!["Daily Tasks", "[[Habits]]"],
+            ),
+            ("ignore_links: Daily Tasks", vec!["Daily Tasks"]),
+            ("ignore_links:", vec![]),
+            ("", vec![]),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            fs::write(
+                dir.path().join(CONFIG_FILENAME),
+                format!("---\nvault_path: .\n{yaml}\n---\n"),
+            )
+            .unwrap();
+
+            let config = load_config(
+                Some(dir.path().join(CONFIG_FILENAME).to_str().unwrap()),
+                None,
+            )
+            .unwrap();
+            assert_eq!(config.ignore_links, excludes(&expected), "yaml: {yaml:?}");
         }
     }
 }

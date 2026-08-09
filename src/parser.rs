@@ -189,7 +189,7 @@ pub fn mask_noncontent(text: &str) -> String {
 }
 
 /// Drop a `#heading` or `^block-id` suffix from a link target.
-fn strip_anchor(target: &str) -> String {
+pub fn strip_anchor(target: &str) -> String {
     let mut result = target;
     for sep in ['#', '^'] {
         if let Some(idx) = result.find(sep) {
