@@ -11,6 +11,7 @@
 
 mod commands;
 mod graph;
+mod move_tree;
 mod note;
 mod notes_cmd;
 mod org;
@@ -296,12 +297,17 @@ enum Command {
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
-    /// Move a note to a different folder and update all links.
+    /// Move a note or a directory to a different folder and update all links.
     Move {
         source: String,
         destination: String,
         #[arg(long = "dry-run")]
         dry_run: bool,
+        #[arg(
+            long = "allow-broken-org-links",
+            help = "Move a directory even though inbound org links will break"
+        )]
+        allow_broken_org_links: bool,
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
@@ -495,12 +501,32 @@ fn run() -> Result<()> {
         Command::Frontmatter(FrontmatterCommand::Delete { file, key }) => {
             notes_cmd::frontmatter_delete(&config, &file, &key)
         }
+        // One verb, two engines. A directory move is not a note move with a
+        // wider net: what moves is a subtree, and what has to be rewritten is
+        // every link that resolves into it, which is a different question
+        // from "what mentions this name".
         Command::Move {
             source,
             destination,
             dry_run,
+            allow_broken_org_links,
             format,
-        } => notes_cmd::move_note(&config, &source, &destination, dry_run, &format),
+        } => {
+            if move_tree::looks_like_directory(&config, &source) {
+                move_tree::move_directory(
+                    &config,
+                    &source,
+                    &destination,
+                    &move_tree::Options {
+                        dry_run,
+                        allow_broken_org_links,
+                    },
+                    &format,
+                )
+            } else {
+                notes_cmd::move_note(&config, &source, &destination, dry_run, &format)
+            }
+        }
         Command::Lint { check, format } => notes_cmd::lint(&config, &check, &format),
         Command::Daily {
             date,

@@ -83,10 +83,22 @@ pub const ATTACHMENT_SUFFIXES: &[&str] = &[
 
 /// Replace a span with spaces, keeping newlines so offsets and line numbers
 /// survive masking.
+///
+/// A masked character is replaced by as many spaces as it had bytes, so the
+/// masked text is byte-for-byte the same length as the original. That is what
+/// lets a rewriter find a span in the masked text and edit that same span in
+/// the file: with one space per *character*, every offset after a masked CJK
+/// comment would be wrong.
 fn blank_out(text: &str) -> String {
-    text.chars()
-        .map(|c| if c == '\n' { '\n' } else { ' ' })
-        .collect()
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if c == '\n' {
+            out.push('\n');
+        } else {
+            out.extend(std::iter::repeat(' ').take(c.len_utf8()));
+        }
+    }
+    out
 }
 
 fn mask_with(text: &str, re: &Regex) -> String {
@@ -473,6 +485,24 @@ mod tests {
     fn c_preprocessor_directives_are_not_tags() {
         let content = "```c\n#include <stdio.h>\n#define FOO 1\n```\n\n#realtag\n";
         assert_eq!(extract_tags(&mask_noncontent(content)), ["realtag"]);
+    }
+
+    /// A rewriter locates a link in the masked text and edits that offset in
+    /// the original, so masking must not move a single byte.
+    #[test]
+    fn masking_preserves_byte_offsets() {
+        for content in [
+            "a\n```\n[[隠し]]\n```\nb [[R]]",
+            "%% 日本語のコメント [[H]] %%\n[[R]]",
+            "`インラインコード` and [[R]]",
+            "{{[[クエリ]]}} [[R]]",
+            "((ブロック参照)) [[R]]",
+        ] {
+            let masked = mask_noncontent(content);
+            assert_eq!(masked.len(), content.len(), "input: {content}");
+            let at = content.find("[[R]]").unwrap();
+            assert_eq!(&masked[at..at + 5], "[[R]]", "input: {content}");
+        }
     }
 
     /// Masking blanks characters in place, so anything reporting a line

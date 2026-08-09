@@ -48,7 +48,7 @@ over SSH. knapper gives that agent the operations plain shell tools can't do,
 because they require understanding the *structure* of a vault:
 
 - 🔗 **The link graph** — `backlinks`, `links`, `orphans`, `hubs`, `broken-links`
-- ✂️ **Link-safe refactors** — `rename` and `move` rewrite every inbound link, in both syntaxes
+- ✂️ **Link-safe refactors** — `rename` and `move` rewrite every inbound link, in both syntaxes; `move` takes a whole directory
 - ✅ **Tasks** — query and mutate `- [ ]` checkboxes across the whole tree
 - 📇 **Frontmatter** — get, set, and delete YAML fields from the shell
 - 🩺 **Vault health** — `lint` finds broken links, orphans, duplicate names, stubs, missing frontmatter
@@ -205,6 +205,86 @@ with `--dry-run`:
 knapper rename "old-name" "new-name" --dry-run
 knapper move "note.md" "Archive/" --dry-run
 ```
+
+### Moving a whole directory
+
+`move` takes a directory as well as a note. The subtree moves as it stands —
+notes, attachments, sidecar files, dotfiles, nested folders, byte for byte —
+and every link that *resolves* into it is rewritten:
+
+```
+$ knapper move "Projects/Thesis" "Archive/" --dry-run
+[DRY RUN] Moving directory: Projects/Thesis -> Archive/Thesis
+  9 files (4 notes) move with it
+  Would update 6 links in 3 files:
+    Notes/Lit Review.md
+      12: [[Projects/Thesis/README]] -> [[Archive/Thesis/README]]
+      14: ![plan](Projects/Thesis/assets/plan.png) -> ![plan](Archive/Thesis/assets/plan.png)
+    ...
+
+Nothing was written.
+```
+
+The source is matched exactly — a vault-relative path, with or without a
+trailing slash — and the result is always `DEST/<the directory's own name>`.
+It does not rename the directory, and it does not merge into an existing one.
+
+"Every inbound link" means every link that *points at a file in the subtree*,
+not every line that mentions the path. So a bare `[[README]]` written next to
+a different README is left exactly as it is, while one that meant the moved
+README is qualified so it still lands there. Links inside the subtree are
+untouched when the structure keeps them working, and a relative link out of
+the subtree is recomputed for its new depth. Image and attachment links follow
+the files they point at.
+
+The whole plan is built before anything is written — so `--dry-run` shows the
+real one, and a write that fails part-way restores what it touched:
+
+```bash
+knapper move "Projects/Thesis" "Archive/" --format json
+```
+
+```json
+{
+  "kind": "directory",
+  "old_path": "Projects/Thesis",
+  "new_path": "Archive/Thesis",
+  "applied": true,
+  "entries": 9,
+  "notes": 4,
+  "files_updated": ["Notes/Lit Review.md"],
+  "links_updated": 6,
+  "unsupported_links": [],
+  "warnings": []
+}
+```
+
+`--dry-run` adds `moves` (every file's old and new path) and `edits` (every
+link change, with its line, before and after), which is enough to act on
+without reading the vault again.
+
+Both ends have to be inside the real vault tree. A source or destination that
+reaches its directory through a **symlink** is refused, even when the path
+looks perfectly vault-relative: `Archive/` could be a link to anywhere, and
+following it would move the directory somewhere knapper can no longer see
+while rewriting every inbound link to a path that no longer exists.
+
+That is about the directories being moved. A symlinked *note* is a different
+thing and is followed, as it is everywhere else in knapper: a link rewritten
+inside one changes the file the link points at, and leaves the link itself a
+link.
+
+Rewritten inline links are percent-encoded for the path they now have, not
+for the one they had. A directory called `Guide (v2)` produces
+`[a](Archive/Guide%20%28v2%29/Note.md)`, because an unencoded `)` would end
+the link at the wrong place — and the same goes for `%`, `"`, `<`, `>` and a
+`#`, which would otherwise be read as the anchor. Wikilinks need none of this
+and get none of it; a `<...>` destination keeps its angle brackets.
+
+One gap it will not paper over: knapper reads org-mode but does not rewrite
+it. If an inbound `.org` link points into the directory, the move stops,
+reports the links under `unsupported_links`, and changes nothing —
+`--allow-broken-org-links` does it anyway and still reports them.
 
 ## Built for agents — the evidence
 
@@ -404,7 +484,7 @@ timed out, or returned nothing usable.
 | `knapper hubs` | Most-linked-to notes |
 | `knapper broken-links` | Links to non-existent notes |
 | `knapper rename OLD NEW` | Rename a note and update all links |
-| `knapper move SRC DEST` | Move a note and update all links |
+| `knapper move SRC DEST` | Move a note or a directory and update all links |
 | `knapper context FILE` | Aggregated context for one file, for LLMs |
 | `knapper tasks` | Find and filter `- [ ]` tasks |
 | `knapper tasks new / done / wip / cancel / set` | Create a task or change its status |

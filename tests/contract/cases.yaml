@@ -727,6 +727,144 @@
       "source.md":
         contains: ["[[Target]]"]
 
+# ------------------------------------------------------ Moving a directory --
+#
+# `move` takes a directory as well as a note. The whole subtree moves, and
+# every link that *resolves* into it follows -- which is a different question
+# from "what mentions this name", and is why these cases keep two notes called
+# README around.
+
+- name: movedir / every link form into the directory is rewritten
+  vault: movedir
+  args: [move, Guide, Archive/]
+  expect:
+    file:
+      "top.md":
+        contains:
+          - 'related: "[[Archive/Guide/README]]"'
+          - "[[Archive/Guide/README|the guide]]"
+          - "[[Archive/Guide/README#Section]]"
+          - "[[Archive/Guide/README^b12]]"
+          - "![[Archive/Guide/assets/diagram.png]]"
+          - "[the guide](Archive/Guide/README.md)"
+          - '[the guide](Archive/Guide/README.md "Guide")'
+          - "[heading](Archive/Guide/README.md#a-heading)"
+          - "![diagram](Archive/Guide/assets/diagram.png)"
+          - "[supports:: [[Archive/Guide/README]]]"
+
+- name: movedir / lookalikes are left alone
+  vault: movedir
+  args: [move, Guide, Archive/]
+  expect:
+    file:
+      "top.md":
+        contains:
+          - "https://x.com/Guide/README.md"
+          - "knapper://personal/Guide/README"
+          - "prose: Guide/README.md is where it lives"
+          - "`[[Guide/README]]`"
+          - "%% [[Guide/README]] %%"
+          # Unlike a single-note rename, a directory move honours the fence:
+          # content that is not prose holds no links to rewrite.
+          - "```\n[[Guide/README]]\n```"
+
+- name: movedir / a bare link to a different note of the same name is untouched
+  vault: movedir
+  args: [move, Guide, Archive/]
+  # Handbook/index.md's [[README]] is its own neighbour's, and stays a bare
+  # link. top.md's [[README]] was Guide's -- Guide sorts before Handbook at
+  # the same depth -- so it has to be qualified to keep pointing there now
+  # that Handbook's README is the nearer one.
+  expect:
+    file:
+      "Handbook/index.md":
+        contains: ["[[README]]"]
+        excludes: ["Archive"]
+      "top.md":
+        contains: ["bare: [[Archive/Guide/README]]"]
+
+- name: movedir / a moved note keeps its own links working
+  vault: movedir
+  args: [move, Guide, Archive/]
+  expect:
+    file:
+      # Structure is preserved, so links inside the subtree do not move.
+      "Archive/Guide/README.md":
+        contains:
+          - "[notes](notes.md)"
+          - "![diagram](assets/diagram.png)"
+          # This one left the subtree, so it is one level further away now.
+          - "[handbook](../../Handbook/README.md)"
+      "Archive/Guide/notes.md":
+        contains: ["[[README]]"]
+
+- name: movedir / an inbound link keeps the qualification it was written with
+  vault: movedir
+  args: [move, Guide, Archive/]
+  expect:
+    file:
+      "Notes/index.md":
+        contains:
+          - "[guide](../Archive/Guide/README.md)"
+          - "[guide](Archive/Guide/README.md)"
+
+- name: movedir / a directory dry run writes nothing
+  vault: movedir
+  args: [move, Guide, Archive/, --dry-run]
+  expect:
+    stdout_contains: ["DRY RUN", "Nothing was written."]
+    file:
+      "top.md":
+        contains: ["[[Guide/README]]"]
+      "Guide/README.md":
+        contains: ["[handbook](../Handbook/README.md)"]
+
+- name: movedir / a directory dry run reports the whole plan as json
+  vault: movedir
+  args: [move, Guide, Archive/, --dry-run, --format, json]
+  expect:
+    json_at:
+      "kind": "directory"
+      "old_path": "Guide"
+      "new_path": "Archive/Guide"
+      "dry_run": true
+      "applied": false
+      "blocked": false
+      "entries": 3
+      "notes": 2
+      "unsupported_links": []
+      "warnings": []
+      "moves.0": {"from": "Guide/README.md", "to": "Archive/Guide/README.md"}
+
+- name: movedir / a completed directory move reports what it did
+  vault: movedir
+  args: [move, Guide, Archive/, --format, json]
+  expect:
+    json_at:
+      "kind": "directory"
+      "old_path": "Guide"
+      "new_path": "Archive/Guide"
+      "applied": true
+      "entries": 3
+      "notes": 2
+
+- name: movedir / a destination inside the source is refused
+  vault: movedir
+  args: [move, Guide, Guide/inner]
+  expect:
+    exit: 1
+    stderr_contains: ["inside the source"]
+    file:
+      "top.md":
+        contains: ["[[Guide/README]]"]
+
+- name: movedir / moving a directory where it already is is refused
+  vault: movedir
+  args: [move, Guide, .]
+  expect:
+    exit: 1
+    stderr_contains: ["already there"]
+
 # ------------------------------------------------------ The reference broker --
 #
 # A reference names a provider; the local provider config says what runs for

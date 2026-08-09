@@ -45,7 +45,8 @@ Query commands take `-f/--format`:
 - `paths` — bare paths, for piping
 
 Mutating commands (`rename`, `move`, `frontmatter set`, `tasks new`) report
-what they did; `rename` and `move` also accept `--format json`.
+what they did; `rename` and `move` also accept `--format json` and
+`--dry-run`.
 
 **Always pass `--format json` when you intend to parse the result.**
 
@@ -115,6 +116,52 @@ knapper rename OLD NEW --dry-run    # preview first
 ```
 
 Prefer `--dry-run` before a rename you are not certain about.
+
+### Moving a directory
+
+`move` takes a directory too. The subtree moves as it stands — notes,
+attachments, sidecars, dotfiles, nested folders — and every link that
+*resolves* into it follows.
+
+```bash
+knapper move "Projects/Thesis" "Archive/" --dry-run --format json
+knapper move "Projects/Thesis" "Archive/" --format json
+```
+
+- The source is an **exact** vault-relative directory path, trailing slash
+  optional. There is no name matching: `move Thesis Archive/` will not find
+  `Projects/Thesis`.
+- The result is always `DEST/<the directory's own name>`. It does not rename,
+  and it refuses rather than merging into an existing directory.
+- "Inbound" means resolution, not text. A bare `[[README]]` that meant some
+  other README is left alone; one that meant the moved README is qualified so
+  it still resolves. Relative links out of the subtree are recomputed; links
+  within it are left alone when the structure keeps them working. Attachment
+  and image links follow their files. Prose, code, `%%comments%%`, external
+  URLs and `knapper://` references are never touched.
+- JSON reports `kind`, `old_path`, `new_path`, `entries`, `notes`,
+  `files_updated`, `links_updated`, `unsupported_links` and `warnings`.
+  `--dry-run` adds `moves` (every file's old and new path) and `edits` (every
+  link change, with line, before and after) — enough to act on without
+  reading the vault again — and writes nothing.
+- Both ends must be inside the real vault tree. A source or destination that
+  reaches its directory through a **symlink** is refused, however
+  vault-relative the path looks: following it would move the directory out of
+  the vault and leave every rewritten link pointing nowhere. A symlinked
+  *note* is different and is followed: rewriting a link inside one updates
+  the file it points at and leaves the symlink a symlink.
+- Rewritten inline links are percent-encoded for the path they now have. A
+  directory called `Guide (v2)` gives `[a](Archive/Guide%20%28v2%29/Note.md)`,
+  since an unencoded `)` would end the link early; `%`, `"`, `<`, `>` and `#`
+  are encoded for the same reason. Wikilinks are not URL-like and are left
+  plain; a `<...>` destination keeps its angle brackets.
+- knapper does not rewrite org-mode links. If an inbound `.org` link points
+  into the directory, the move **stops and changes nothing**, listing them
+  under `unsupported_links`; `--allow-broken-org-links` proceeds anyway and
+  still reports them. Run `--dry-run` first to see them.
+
+Use `--dry-run` before every directory move: it is the cheap way to see
+exactly which links a move would touch.
 
 ## Tasks
 
