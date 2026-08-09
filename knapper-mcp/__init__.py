@@ -1,2 +1,0 @@
-"""knapper MCP server package."""
-

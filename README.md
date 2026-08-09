@@ -251,8 +251,6 @@ knapper skill --install    # write it into ~/.claude and ~/.codex
 so the instructions an agent reads cannot drift behind the binary they
 describe. The source is [`assets/knapper-skill.md`](assets/knapper-skill.md).
 
-There is an MCP server too, in [`knapper-mcp/`](knapper-mcp/).
-
 ## Tasks
 
 Tasks are plain markdown checkboxes. The emoji date convention popularised by
