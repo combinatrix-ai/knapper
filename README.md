@@ -21,6 +21,23 @@ knapper tasks --overdue --format json    # machine-readable, ready for jq
 > A *knapper* is someone who strikes obsidian and flint into usable blades.
 > This one works a directory of markdown into something an agent can wield.
 
+## Supported note formats
+
+| Ecosystem | Support | What knapper understands |
+|---|---|---|
+| **Obsidian** | ✅ | Wikilinks, markdown links, properties, aliases, tags, daily notes, and the Tasks, Dataview, and Templater conventions |
+| **Foam** | ✅ | Wikilinks and markdown links, YAML frontmatter, and tags |
+| **Dendron** | ✅ links | Dot-hierarchy filenames and links with or without `.md`; frontmatter IDs are read but do not resolve links |
+| **Zettelkasten** | ✅ | ID-prefixed filenames and bare wikilinks |
+| **Plain markdown / SSGs** | ✅ | Markdown links and YAML frontmatter in `.md`, `.markdown`, and `.mdx` files |
+| **Logseq** | ⚠️ file-level | Page references, properties, tasks, and dates; block identity is intentionally ignored |
+| **Roam exports** | ⚠️ file-level | Page references, macros, and tasks; block identity and attributes are not modelled |
+| **org-mode / org-roam** | ⚠️ read support | Links, IDs, global heading links, properties, tags, todos, and planning dates; write commands still emit markdown |
+
+Every claim above is pinned by a fixture test. See
+**[the full compatibility matrix](docs/COMPATIBILITY.md)** for exact syntax,
+plugin coverage, configuration, and known gaps.
+
 ---
 
 ## Why this exists
