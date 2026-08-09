@@ -99,9 +99,16 @@ knapper backlinks FILE -A 2 -B 2    # with surrounding lines, like grep
 knapper orphans                     # nothing links here
 knapper hubs --limit 10             # most linked-to
 knapper broken-links                # links pointing nowhere
+knapper broken-links --format json  # one record per occurrence, with position
 ```
 
 `orphans` hides `Templates/` and dotfolders; `--include-special` shows them.
+
+`broken-links --format json` is occurrence-oriented, not a per-file summary:
+each record carries `source`, `line`, `column` (1-based, in characters, and
+`null` for org), `syntax`, `raw` (the link as written), `raw_target`, `target`
+(what the resolver was asked), `reason`, `status` and `candidates`. It reads
+the same scan as `repair-links`, so the two cannot disagree.
 
 ## Hard links and soft tags
 
@@ -225,6 +232,62 @@ knapper move "Projects/Thesis" "Archive/" --format json
 
 Use `--dry-run` before every directory move: it is the cheap way to see
 exactly which links a move would touch.
+
+## Repairing links that broke somewhere else
+
+`rename` and `move` keep links intact through a refactor knapper performs.
+`repair-links` is the other half: the ones that broke while knapper was not
+looking — a folder reorganised elsewhere, an exporter's stale path, an
+encoding that survived a round trip.
+
+```bash
+knapper repair-links --dry-run                  # the plan, as text
+knapper repair-links --dry-run --format json    # the plan, machine-readable
+```
+
+**V1 plans and nothing else.** `--dry-run` is required; omitting it exits 2
+before the vault is read. There is no `--apply`, so never tell a user this
+command fixed anything — hand them the plan.
+
+Every occurrence is `safe`, `ambiguous` or `unresolved`. Only two bases are
+ever safe, and both are structural:
+
+- `unique-path-suffix` — the tail of the path is still exactly right and only
+  the leading directories are stale, and exactly one file ends that way.
+  Leading `../` counts as part of the stale prefix.
+- `percent-decoding` — decoding the target yields the link that was meant,
+  *and* the decoded text names a path that exists.
+
+Both are checked by re-resolving the link knapper would write, as a path.
+Decoding is not a doorway to anything looser: knapper resolves a bare name by
+stem and by alias when it reads a vault, and neither is evidence for an edit.
+`[[Docs/My%20Note]]` is safe; `[[My%20Note]]` reaches the same file by
+filename and is only a suggestion.
+
+Everything else is a suggestion at most, and knapper will not act on it:
+
+- `basename` — the filename matches and the directory does not. A
+  resemblance, not a path.
+- An alias — a name the author gave a note is not a location.
+- `path-suffix` with more than one hit — both destinations are listed and
+  neither is chosen.
+- A renamed concept (`[[Roam]]` beside `RoamResearch.md`) is `unresolved`.
+  Do not "fix" it on knapper's behalf; ask the user.
+- `[[2026-07-04]]` (`missing-date`) and `[[12]]` (`numeric-label`) name no
+  note, so nothing is invented — no note, no tag.
+- org links are reported with a line and never with a plan.
+
+A link that already resolves is never a repair, including a valid
+note-relative link; excluded notes and non-note leaves *are* valid
+destinations, exactly as they are for the resolver.
+
+JSON reports `kind`, `dry_run`, `applied`, `summary`
+(`files`/`occurrences`/`safe`/`ambiguous`/`unresolved`) and `occurrences`.
+Each occurrence adds `candidates` (`path`, `basis`, `matched`) and, when it is
+safe, an `edit` with `byte_start`, `byte_end`, `before`, `after`,
+`target_before`, `target_after` and `resolves_to` — enough to carry the repair
+out without scanning again. `edit` is `null` for everything that is not safe.
+Occurrences are ordered by source, then line, then column.
 
 ## Tasks
 
@@ -363,6 +426,7 @@ not a place executable configuration can come from.
 ```bash
 knapper lint                 # broken links, orphans, duplicates, stubs, missing frontmatter
 knapper lint --check broken-links --format json
+knapper repair-links --dry-run   # which of those broken links could be repaired
 ```
 
 ## Keeping knapper current
@@ -391,3 +455,7 @@ provider command configured for `resolve` may open its own.
   never a substring, and a path-qualified link needs its path written out.
 - `.org` files are read by a dedicated parser, including `[[id:...]]` and
   global `[[*Heading]]` links.
+- `repair-links` never writes, and never guesses. A broken link it leaves
+  `unresolved` is a question for the user, not an invitation to invent a note
+  or demote it to a tag. `demote` is for a label that was never a reference;
+  it is not link repair.

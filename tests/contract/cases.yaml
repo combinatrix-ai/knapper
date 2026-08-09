@@ -585,11 +585,22 @@
   args: [broken-links, --format, json]
   # Journal.md writes each ignored target bare, with an anchor, with a display
   # text, in lower case, as a markdown link and path-qualified. None is a
-  # finding. Other.md's three links only resemble them, and all three stay.
+  # finding. Other.md's three links only resemble them, and all three stay --
+  # each as one occurrence, with the position and the text as written.
   expect:
-    json:
-      - file: Other.md
-        broken_links: ["Daily Tasks Archive", "Sub/Daily Tasks", "Missing Note"]
+    json_length: 3
+    json_at:
+      "0.source": "Other.md"
+      "0.line": 10
+      "0.column": 3
+      "0.raw": "[[Daily Tasks Archive]]"
+      "0.target": "Daily Tasks Archive"
+      "0.reason": "missing-note"
+      "0.status": "unresolved"
+      "1.target": "Sub/Daily Tasks"
+      "1.reason": "missing-path"
+      "2.target": "Missing Note"
+    stdout_excludes: ["Journal.md"]
 
 - name: ignorelinks / lint counts what broken-links reports
   vault: ignorelinks
@@ -1279,6 +1290,258 @@
   args: [backlinks, assets/paper.pdf, --format, paths]
   expect:
     lines: ["Source.md"]
+
+# ------------------------------------------------------- Planning repairs --
+#
+# `rename` and `move` keep links intact through a refactor knapper performs.
+# `repair-links` is the other half: the links that broke while knapper was not
+# looking. It proposes an edit only where the filesystem settles it, and V1
+# never writes.
+
+- name: repair / a stale path with one destination is a safe repair
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  # Index.md line 10 writes [[legacy/notes/Foo.md]]. Only notes/Foo.md ends
+  # with "notes/Foo.md", so the leading directory is stale and nothing else
+  # about the link is in doubt.
+  expect:
+    json_at:
+      kind: "repair-links"
+      dry_run: true
+      applied: false
+      summary: {"files": 2, "occurrences": 13, "safe": 6, "ambiguous": 3, "unresolved": 4}
+      "occurrences.1.source": "Index.md"
+      "occurrences.1.line": 10
+      "occurrences.1.column": 3
+      "occurrences.1.syntax": "wikilink"
+      "occurrences.1.raw": "[[legacy/notes/Foo.md]]"
+      "occurrences.1.raw_target": "legacy/notes/Foo.md"
+      "occurrences.1.target": "legacy/notes/Foo.md"
+      "occurrences.1.reason": "missing-path"
+      "occurrences.1.status": "safe"
+      "occurrences.1.candidates":
+        - {"path": "notes/Foo.md", "basis": "unique-path-suffix", "matched": "notes/Foo.md"}
+      "occurrences.1.edit.before": "[[legacy/notes/Foo.md]]"
+      "occurrences.1.edit.after": "[[notes/Foo.md]]"
+      "occurrences.1.edit.target_before": "legacy/notes/Foo.md"
+      "occurrences.1.edit.target_after": "notes/Foo.md"
+      "occurrences.1.edit.resolves_to": "notes/Foo.md"
+
+- name: repair / a link written in frontmatter is an occurrence like any other
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  # Obsidian resolves a wikilink written as a property value, so the graph
+  # counts it and so does this -- with the line and column it sits on.
+  expect:
+    json_at:
+      "occurrences.0.line": 3
+      "occurrences.0.column": 11
+      "occurrences.0.status": "safe"
+      "occurrences.0.edit.after": "[[notes/Foo.md]]"
+
+- name: repair / an excluded note is a valid destination
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  # Archive/ is excluded, so it is nobody's note -- and still a real file a
+  # link may point at, which is the rule the resolver already follows.
+  expect:
+    json_at:
+      "occurrences.2.raw": "[[legacy/Archive/Old Plan]]"
+      "occurrences.2.status": "safe"
+      "occurrences.2.edit.after": "[[Archive/Old Plan]]"
+      "occurrences.2.edit.resolves_to": "Archive/Old Plan.md"
+
+- name: repair / a non-note leaf is a valid destination
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  expect:
+    json_at:
+      "occurrences.3.raw": "[[legacy/assets/paper.pdf]]"
+      "occurrences.3.status": "safe"
+      "occurrences.3.edit.after": "[[assets/paper.pdf]]"
+      "occurrences.3.edit.resolves_to": "assets/paper.pdf"
+
+- name: repair / an encoding that survived a round trip is normalised
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  # Decoding is not a guess about meaning: it yields the link that was meant,
+  # and the resolver's ordinary rules then apply to it unchanged.
+  expect:
+    json_at:
+      "occurrences.4.raw": "[[Docs/My%20Note]]"
+      "occurrences.4.status": "safe"
+      "occurrences.4.candidates.0.basis": "percent-decoding"
+      "occurrences.4.edit.after": "[[Docs/My Note]]"
+
+- name: repair / a markdown link keeps its label, extension and encoding
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  expect:
+    json_at:
+      "occurrences.5.syntax": "markdown"
+      "occurrences.5.raw": "[Old plan](legacy/Archive/Old%20Plan.md)"
+      "occurrences.5.status": "safe"
+      "occurrences.5.edit.after": "[Old plan](Archive/Old%20Plan.md)"
+
+- name: repair / two destinations are ambiguous, never safe
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  # Handbook/docs/README.md and Manual/docs/README.md both end the same way.
+  # Choosing between them is a judgement about meaning, so nothing is proposed.
+  expect:
+    json_at:
+      "occurrences.6.raw": "[[stale/docs/README.md]]"
+      "occurrences.6.status": "ambiguous"
+      "occurrences.6.edit": null
+      "occurrences.6.candidates":
+        - {"path": "Handbook/docs/README.md", "basis": "path-suffix", "matched": "docs/README.md"}
+        - {"path": "Manual/docs/README.md", "basis": "path-suffix", "matched": "docs/README.md"}
+
+- name: repair / a matching basename under a wrong directory is only a suggestion
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  # [[old/Bar/Foo.md]] and notes/Foo.md share a filename and nothing else.
+  # One component is a resemblance; two are a path.
+  expect:
+    json_at:
+      "occurrences.10.raw": "[[old/Bar/Foo.md]]"
+      "occurrences.10.status": "ambiguous"
+      "occurrences.10.edit": null
+      "occurrences.10.candidates":
+        - {"path": "notes/Foo.md", "basis": "basename", "matched": "Foo.md"}
+
+- name: repair / decoding that lands only by basename is not safe
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  # The boundary, in one fixture: line 13 and line 47 carry the same encoding
+  # and decode to the same file. [[Docs/My%20Note]] names its path, so it is
+  # safe. [[My%20Note]] names only the filename, and reaches Docs/My Note.md
+  # through the resolver's basename fallback -- which is a resemblance, and
+  # must not become safe just because an encoding fix was involved.
+  expect:
+    json_at:
+      "occurrences.11.raw": "[[My%20Note]]"
+      "occurrences.11.status": "ambiguous"
+      "occurrences.11.edit": null
+      "occurrences.11.candidates":
+        - {"path": "Docs/My Note.md", "basis": "basename", "matched": "My Note"}
+      # The same destination, reached by path, is still safe.
+      "occurrences.4.raw": "[[Docs/My%20Note]]"
+      "occurrences.4.status": "safe"
+      "occurrences.4.edit.resolves_to": "Docs/My Note.md"
+
+- name: repair / a renamed concept is unresolved, never safe
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  # RoamResearch.md is what [[Roam]] was renamed into. No filesystem knows
+  # that, so knapper does not either.
+  expect:
+    json_at:
+      "occurrences.7.target": "Roam"
+      "occurrences.7.reason": "missing-note"
+      "occurrences.7.status": "unresolved"
+      "occurrences.7.candidates": []
+      "occurrences.7.edit": null
+    stdout_excludes: ["RoamResearch"]
+
+- name: repair / a missing date and a citation label name no note
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  expect:
+    json_at:
+      "occurrences.8.target": "2026-07-04"
+      "occurrences.8.reason": "missing-date"
+      "occurrences.8.status": "unresolved"
+      "occurrences.9.target": "12"
+      "occurrences.9.reason": "numeric-label"
+      "occurrences.9.status": "unresolved"
+
+- name: repair / an org link is reported with its line and never repaired
+  vault: repair
+  args: [repair-links, --dry-run, --format, json]
+  # knapper reads org and does not rewrite it, here as in move and demote, so
+  # proposing an edit would promise something no apply could keep. There is no
+  # column either: org masking does not preserve byte offsets.
+  expect:
+    json_at:
+      "occurrences.12.source": "Log.org"
+      "occurrences.12.line": 3
+      "occurrences.12.column": null
+      "occurrences.12.syntax": "org"
+      "occurrences.12.reason": "org-link"
+      "occurrences.12.status": "unresolved"
+      "occurrences.12.edit": null
+
+- name: repair / code, inline spans and comments hold no occurrences
+  vault: repair
+  args: [repair-links, --dry-run]
+  # Index.md repeats [[legacy/notes/Foo.md]] in a fence, in an inline span and
+  # in a %%comment%%. Two occurrences of it are references; three are not.
+  expect:
+    stdout_contains: ["Index.md:3:11", "Index.md:10:3"]
+    stdout_excludes: ["Index.md:32", "Index.md:35", "Index.md:37"]
+
+- name: repair / a valid note-relative link is not a repair
+  vault: repair
+  args: [repair-links, --dry-run]
+  # research/survey/index.md links ../papers/foo/summary.md, which resolves.
+  # A link that works is never rewritten for style.
+  expect:
+    stdout_excludes: ["research/survey", "summary.md"]
+
+- name: repair / the text report says why, and says nothing was written
+  vault: repair
+  args: [repair-links, --dry-run]
+  expect:
+    stdout_contains:
+      - "[DRY RUN] repair-links: 13 broken link occurrence(s) in 2 file(s)"
+      - "safe 6, ambiguous 3, unresolved 4"
+      - "[[legacy/notes/Foo.md]] -> [[notes/Foo.md]]"
+      - "unique-path-suffix: the only file whose path ends with \"notes/Foo.md\""
+      - "2 files end with \"docs/README.md\""
+      - "Nothing was written. repair-links plans repairs; it never edits the vault."
+    file:
+      "Index.md":
+        contains: ["[[legacy/notes/Foo.md]]", "[[Docs/My%20Note]]"]
+        excludes: ["[[notes/Foo.md]]"]
+
+- name: repair / without --dry-run it refuses and writes nothing
+  vault: repair
+  args: [repair-links]
+  expect:
+    exit: 2
+    stderr_contains: ["--dry-run", "never writes"]
+    file:
+      "Index.md":
+        contains: ["[[legacy/notes/Foo.md]]"]
+        excludes: ["[[notes/Foo.md]]"]
+
+- name: repair / broken-links reports the same occurrences without a plan
+  vault: repair
+  args: [broken-links, --format, json]
+  expect:
+    json_length: 13
+    json_at:
+      "1.source": "Index.md"
+      "1.line": 10
+      "1.raw": "[[legacy/notes/Foo.md]]"
+      "1.status": "safe"
+      "1.candidates.0.path": "notes/Foo.md"
+    # The plan belongs to repair-links; broken-links only says what is broken.
+    stdout_excludes: ["byte_start", "resolves_to"]
+
+- name: repair / broken-links still answers in paths
+  vault: repair
+  args: [broken-links, --format, paths]
+  expect:
+    lines: ["Index.md", "Log.org"]
+
+- name: repair / lint counts what the occurrence scan reports
+  vault: repair
+  args: [lint, --check, broken-links, --format, json]
+  expect:
+    json_at:
+      summary.broken_links: 13
 
 # ---------------------------------------------------------------- The skill --
 

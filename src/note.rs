@@ -75,7 +75,18 @@ pub fn parse_note(path: &Path, content: &str) -> Note {
 
     let mut links = parser::extract_links(&prose);
     links.extend(parser::extract_frontmatter_links(&frontmatter));
-    links.extend(parser::extract_inline_field_links(&inline_fields));
+
+    // An inline field lives in the prose, so a wikilink written in one has
+    // already been found above. This pass is what guarantees a *typed*
+    // relation reaches the graph whatever the field syntax around it, and it
+    // adds only what is new: `links` is a bag of occurrences, and counting
+    // one link twice would inflate every broken-link total by however many
+    // Dataview fields a vault happens to use.
+    for link in parser::extract_inline_field_links(&inline_fields) {
+        if !links.contains(&link) {
+            links.push(link);
+        }
+    }
 
     let mut tags = frontmatter_tags(&frontmatter);
     tags.extend(parser::extract_tags(&prose));
@@ -165,6 +176,18 @@ mod tests {
         assert_eq!(
             note("---\nrelated: \"[[Other]]\"\n---\n\n[[In Body]]\n").links,
             ["In Body", "Other"]
+        );
+    }
+
+    /// A wikilink in an inline field is one link, and it is read out of the
+    /// prose it is written in. Counting it once from the prose and again from
+    /// the field would report one broken link as two.
+    #[test]
+    fn a_typed_relation_is_one_link_not_two() {
+        assert_eq!(note("- [supports:: [[Some Note]]]\n").links, ["Some Note"]);
+        assert_eq!(
+            note("- [rel:: [[A]] and [[B]]]\n- see [[A]]\n").links,
+            ["A", "B", "A"]
         );
     }
 

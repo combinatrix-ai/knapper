@@ -116,11 +116,43 @@ pub fn normalize_org_target(raw: &str) -> Option<String> {
     (!target.is_empty()).then_some(target)
 }
 
-pub fn extract_org_links(content: &str) -> Vec<String> {
+/// One org link, with the line it sits on.
+///
+/// There is no column and no byte span on purpose. org masking blanks a
+/// character to a single space rather than to its own width, so an offset
+/// taken from the masked text does not point at the same byte in the file --
+/// enough for a line number, which counts newlines, and not enough to edit
+/// with. knapper reads org and never rewrites it, so a line is all a report
+/// needs.
+#[derive(Debug, Clone)]
+pub struct OrgLink {
+    pub line: usize,
+    /// The link as written, `[[...]]` included.
+    pub raw: String,
+    /// The target as written, before normalisation.
+    pub raw_target: String,
+    /// The target the resolver is asked about.
+    pub target: String,
+}
+
+pub fn org_links(content: &str) -> Vec<OrgLink> {
+    let masked = mask_org_noncontent(content);
     ORG_LINK
-        .captures_iter(&mask_org_noncontent(content))
-        .filter_map(|c| normalize_org_target(&c[1]))
+        .captures_iter(&masked)
+        .filter_map(|c| {
+            let whole = c.get(0).unwrap();
+            Some(OrgLink {
+                line: masked[..whole.start()].matches('\n').count() + 1,
+                raw: whole.as_str().to_string(),
+                raw_target: c[1].to_string(),
+                target: normalize_org_target(&c[1])?,
+            })
+        })
         .collect()
+}
+
+pub fn extract_org_links(content: &str) -> Vec<String> {
+    org_links(content).into_iter().map(|l| l.target).collect()
 }
 
 fn split_org_tags(raw: &str) -> Vec<String> {

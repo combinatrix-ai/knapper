@@ -93,17 +93,11 @@ fn measure(flavor: &str) -> Counts {
     })
     .unwrap_or(0);
 
-    // broken-links groups its findings by source file, so the count that
-    // means "how many links point nowhere" is the sum, not the entry count.
+    // broken-links reports one record per occurrence, so "how many links
+    // point nowhere" is the length of the list.
     let broken = json(&vault, &["broken-links", "--format", "json"])
         .as_array()
-        .map(|files| {
-            files
-                .iter()
-                .filter_map(|f| f.get("broken_links").and_then(serde_json::Value::as_array))
-                .map(Vec::len)
-                .sum()
-        })
+        .map(Vec::len)
         .unwrap_or(0);
 
     let tasks = json(&vault, &["tasks", "--format", "json"])

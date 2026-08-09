@@ -117,6 +117,27 @@ impl LinkResolver {
         None
     }
 
+    /// The file this target names *as a path*: vault-root first, then safely
+    /// relative to the referring note. No stem, alias or basename fallback.
+    ///
+    /// `repair` asks this rather than `resolve` on both halves of its safety
+    /// argument -- deciding that a transformed target lands somewhere, and
+    /// checking that the link it would write lands back. `resolve`'s stem,
+    /// alias and basename fallbacks are the right rules for *reading* a vault
+    /// and the wrong evidence for proposing an edit: they would let
+    /// `old/Foo.txt` "repair" to any note called Foo, and a decoded alias
+    /// repair to whatever note declares it. Both are guesses about meaning.
+    ///
+    /// Anything this answers, `resolve` answers the same way, since `resolve`
+    /// tries the path before it tries anything else. Narrowing the evidence
+    /// therefore never proposes a link a reader would follow elsewhere.
+    pub fn resolve_as_path(&self, source: &str, target: &str) -> Option<String> {
+        if let Some(hit) = self.resolve_path(target) {
+            return Some(hit);
+        }
+        relative_target(source, target).and_then(|relative| self.resolve_path(&relative))
+    }
+
     fn resolve_path(&self, target: &str) -> Option<String> {
         for suffix in ["md", "org", "markdown", "mdx"] {
             let candidate = format!("{target}.{suffix}");

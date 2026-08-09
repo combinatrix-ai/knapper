@@ -201,16 +201,61 @@ pub fn strip_anchor(target: &str) -> String {
     result.trim().to_string()
 }
 
+/// The resolvable target of a wikilink, given the text between its brackets.
+///
+/// `None` means the brackets held nothing to resolve.
+pub fn normalize_wikilink_target(inner: &str) -> Option<String> {
+    // Roam exports write a link wrapped in a link, [[[[Ideas]]]];
+    // the extra brackets are not part of the name.
+    let target = strip_anchor(inner);
+    let target = target.trim_matches(['[', ']']).trim().to_string();
+    (!target.is_empty()).then_some(target)
+}
+
+/// The resolvable target of a markdown href that is already percent-decoded
+/// and has already had its anchor removed.
+///
+/// `None` means the href is not a note reference: an attachment, or nothing at
+/// all. This is where "a dot that is not an extension is part of the name"
+/// lives, so a Dendron `proj.knapper.design` survives and a `.pdf` does not
+/// become a link.
+pub fn normalize_markdown_path(target: &str) -> Option<String> {
+    let mut target = target.to_string();
+    if target.is_empty() {
+        return None;
+    }
+
+    // Strip a note extension; skip attachments. A dot that is neither is
+    // part of the name.
+    if let Some((stem, ext)) = target.rsplit_once('.') {
+        let ext = ext.to_ascii_lowercase();
+        if NOTE_SUFFIXES.contains(&ext.as_str()) {
+            target = stem.to_string();
+        } else if ATTACHMENT_SUFFIXES.contains(&ext.as_str()) {
+            return None;
+        }
+    }
+
+    while let Some(rest) = target.strip_prefix("./") {
+        target = rest.to_string();
+    }
+
+    (!target.is_empty()).then_some(target)
+}
+
+/// The resolvable target of a markdown href, as written.
+pub fn normalize_markdown_target(raw: &str) -> Option<String> {
+    if EXTERNAL_SCHEME.is_match(raw) || raw.starts_with('#') || raw.starts_with("//") {
+        return None;
+    }
+    let decoded = percent_decode_str(raw).decode_utf8_lossy().to_string();
+    normalize_markdown_path(&strip_anchor(&decoded))
+}
+
 pub fn extract_wikilinks(content: &str) -> Vec<String> {
     WIKILINK
         .captures_iter(content)
-        .filter_map(|c| {
-            // Roam exports write a link wrapped in a link, [[[[Ideas]]]];
-            // the extra brackets are not part of the name.
-            let target = strip_anchor(&c[1]);
-            let target = target.trim_matches(['[', ']']).trim().to_string();
-            (!target.is_empty()).then_some(target)
-        })
+        .filter_map(|c| normalize_wikilink_target(&c[1]))
         .collect()
 }
 
@@ -224,36 +269,7 @@ pub fn extract_markdown_links(content: &str) -> Vec<String> {
         if whole.start() > 0 && bytes[whole.start() - 1] == b'!' {
             continue;
         }
-
-        let raw = &c[1];
-        if EXTERNAL_SCHEME.is_match(raw) || raw.starts_with('#') || raw.starts_with("//") {
-            continue;
-        }
-
-        let decoded = percent_decode_str(raw).decode_utf8_lossy().to_string();
-        let mut target = strip_anchor(&decoded);
-        if target.is_empty() {
-            continue;
-        }
-
-        // Strip a note extension; skip attachments. A dot that is neither is
-        // part of the name.
-        if let Some((stem, ext)) = target.rsplit_once('.') {
-            let ext = ext.to_ascii_lowercase();
-            if NOTE_SUFFIXES.contains(&ext.as_str()) {
-                target = stem.to_string();
-            } else if ATTACHMENT_SUFFIXES.contains(&ext.as_str()) {
-                continue;
-            }
-        }
-
-        while let Some(rest) = target.strip_prefix("./") {
-            target = rest.to_string();
-        }
-
-        if !target.is_empty() {
-            targets.push(target);
-        }
+        targets.extend(normalize_markdown_target(&c[1]));
     }
     targets
 }

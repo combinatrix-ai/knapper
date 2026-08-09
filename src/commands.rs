@@ -9,6 +9,7 @@ use serde_json::json;
 use crate::graph::build_link_graph;
 use crate::note::parse_note;
 use crate::parser::{extract_links, mask_noncontent};
+use crate::repair;
 use crate::vault::{all_notes, relative_path, resolve_path, Config};
 
 /// Every JSON value knapper prints goes through here, so non-ASCII stays
@@ -205,35 +206,51 @@ pub fn hubs(config: &Config, limit: usize, format: &str) -> Result<()> {
     Ok(())
 }
 
+/// `broken-links` reports occurrences, not names.
+///
+/// A target on its own says a link is broken; it does not say where, how it
+/// was written, or whether anything on disk could settle what it meant. All
+/// three are what a caller needs to act, so the JSON is one record per
+/// occurrence, carrying the position, the text as written, and the candidates
+/// `repair-links` would consider. The two commands read the same scan, so they
+/// can never disagree about what is broken.
 pub fn broken_links(config: &Config, format: &str) -> Result<()> {
-    let graph = build_link_graph(config);
-    let total: usize = graph.broken.values().map(|v| v.len()).sum();
+    let occurrences = repair::scan(config);
+    let files: std::collections::BTreeSet<&str> =
+        occurrences.iter().map(|o| o.source.as_str()).collect();
 
     match format {
-        "json" => {
-            let items: Vec<_> = graph
-                .broken
-                .iter()
-                .map(|(file, links)| json!({"file": file, "broken_links": links}))
-                .collect();
-            print_json(&json!(items));
-        }
-        "paths" => graph.broken.keys().for_each(|f| println!("{f}")),
+        "json" => print_json(&json!(occurrences
+            .iter()
+            .map(|o| repair::occurrence_json(o, false))
+            .collect::<Vec<_>>())),
+        "paths" => files.iter().for_each(|f| println!("{f}")),
         _ => {
-            if total == 0 {
+            if occurrences.is_empty() {
                 println!("No broken links found!");
                 return Ok(());
             }
             println!(
-                "Found {total} broken links in {} files:\n",
-                graph.broken.len()
+                "Found {} broken links in {} files:\n",
+                occurrences.len(),
+                files.len()
             );
-            for (file, links) in &graph.broken {
-                println!("  {file}:");
-                for link in links {
-                    println!("    -> [[{link}]]");
+            let mut current = "";
+            for occurrence in &occurrences {
+                if occurrence.source != current {
+                    current = &occurrence.source;
+                    println!("  {current}:");
                 }
+                println!(
+                    "    {}: {} ({}, {})",
+                    occurrence.line, occurrence.raw, occurrence.reason, occurrence.status
+                );
             }
+            let counts = repair::counts(&occurrences);
+            println!(
+                "\n{} could be repaired safely; see `knapper repair-links --dry-run`.",
+                counts[repair::SAFE]
+            );
         }
     }
     Ok(())

@@ -87,8 +87,14 @@ Logseq, org-mode and the rest -- and backs the compatibility claims in
 
 `fixtures/behaviour/` holds vaults that belong to no ecosystem and exist to
 pin behaviour: `bare` has no config at all, `configured` exercises what
-`knapper.config.md` can change, and `refactor` collects every form a link can
-take so a rename has something to get wrong.
+`knapper.config.md` can change, `refactor` collects every form a link can
+take so a rename has something to get wrong, and `repair` collects every kind
+of broken link — the ones a stale path settles, the ones two files answer to,
+and the ones nothing on disk can settle.
+
+`repair` is position-sensitive: its contract cases assert occurrences by
+index, so inserting a link in the middle of `Index.md` renumbers them. Add new
+links at the end.
 
 Every fixture must have at least one case; a test asserts it, because a
 fixture nothing exercises is an untested claim.

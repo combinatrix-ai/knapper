@@ -1,0 +1,4 @@
+#+title: Log
+
+Reads [[file:legacy/Archive/Old Plan.org][Old Plan]], which is broken and which
+knapper will not rewrite.

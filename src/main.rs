@@ -12,6 +12,7 @@
 mod commands;
 mod demote;
 mod graph;
+mod links;
 mod move_tree;
 mod note;
 mod notes_cmd;
@@ -20,6 +21,7 @@ mod parser;
 mod providers;
 mod query;
 mod refs;
+mod repair;
 mod skill;
 mod tasks;
 mod templater;
@@ -215,6 +217,25 @@ enum Command {
     /// Find broken links (links to non-existent notes).
     #[command(name = "broken-links")]
     BrokenLinks {
+        #[arg(short = 'f', long = "format", default_value = "text")]
+        format: String,
+    },
+    /// Plan repairs for broken links. Reports only; writes nothing.
+    #[command(
+        name = "repair-links",
+        long_about = "Plan repairs for links that are already broken.\n\n\
+        This is the other half of `rename` and `move`: they keep links intact through a\n\
+        refactor knapper performs, and this reports the ones that broke while knapper was\n\
+        not looking -- a folder reorganised elsewhere, an exporter's stale path.\n\n\
+        A repair is proposed only where the filesystem settles it: exactly one file, reached\n\
+        by an exact structural transformation of the target as written. A resemblance is\n\
+        not evidence, so a renamed concept, a missing date and a citation label are reported\n\
+        and left alone.\n\n\
+        V1 is read-only. --dry-run is required, and nothing is ever written."
+    )]
+    RepairLinks {
+        #[arg(long = "dry-run", help = "Required: this command only ever plans")]
+        dry_run: bool,
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
@@ -506,6 +527,19 @@ fn run() -> Result<()> {
         } => commands::orphans(&config, &format, include_special),
         Command::Hubs { limit, format } => commands::hubs(&config, limit, &format),
         Command::BrokenLinks { format } => commands::broken_links(&config, &format),
+        // Omitting --dry-run is a usage error, which is exit 2 -- and it is
+        // refused before anything reads the vault, so there is no path on
+        // which a missing flag could be read as consent to write.
+        Command::RepairLinks { dry_run, format } => {
+            if !dry_run {
+                eprintln!(
+                    "Error: repair-links only plans repairs and never writes. \
+                     Re-run with --dry-run."
+                );
+                std::process::exit(2);
+            }
+            repair::repair_links(&config, dry_run, &format)
+        }
         Command::Init { .. }
         | Command::Skill { .. }
         | Command::SelfUpdate { .. }
