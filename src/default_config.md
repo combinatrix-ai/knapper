@@ -44,6 +44,14 @@ This is the configuration file for knapper CLI.
   and may be written the way the link is written in a note (`[[Habits]]`,
   `Habits.md` and `Habits` are the same entry).
 
+Link targets are discovered from every visible file, including notes below an
+`exclude` entry and non-note files such as `.pdf`, `.txt` and `.json` leaves.
+Excluded files and leaves are never parsed as source notes and do not appear in
+`query`, `orphans` or `hubs`; they can still be valid destinations of links from
+an included note. A path-qualified target is first tried as a vault-root path,
+then relative to the referring note, with `..` traversal that would leave the
+vault rejected. Bare note links retain basename and alias resolution.
+
 ## Tasks
 
 - **done_date**: Whether to add completion date when marking tasks done

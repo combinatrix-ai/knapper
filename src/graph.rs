@@ -1,14 +1,14 @@
 //! The link graph, and the resolver that turns a link target into a path.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::path::Path;
+use std::path::{Component, Path};
 
 use rayon::prelude::*;
 
 use crate::note::parse_note;
 use crate::org;
 use crate::parser::strip_anchor;
-use crate::vault::{all_notes, is_org, relative_path, Config, DEFAULT_EXTENSIONS};
+use crate::vault::{all_files, all_notes, is_org, relative_path, Config, DEFAULT_EXTENSIONS};
 
 /// Resolves link targets to vault-relative paths.
 ///
@@ -16,8 +16,10 @@ use crate::vault::{all_notes, is_org, relative_path, Config, DEFAULT_EXTENSIONS}
 /// of every file. Resolving per link against the whole file list is
 /// O(links x files) and becomes unusable well before a vault gets large.
 pub struct LinkResolver {
-    exact: BTreeSet<String>,
+    /// All vault files, including excluded notes and non-note leaf files.
     by_path: HashMap<String, String>,
+    /// Basename lookup remains note-only. A generic attachment basename is
+    /// too ambiguous to resolve safely; attachments resolve by path.
     by_stem: HashMap<String, String>,
     by_alias: HashMap<String, String>,
     // org only: :ID: properties, and heading text for [[*Heading]] links,
@@ -29,14 +31,17 @@ pub struct LinkResolver {
 impl LinkResolver {
     pub fn new(
         files: BTreeSet<String>,
+        target_files: BTreeSet<String>,
         aliases: BTreeMap<String, String>,
         ids: BTreeMap<String, String>,
         headings: BTreeMap<String, String>,
     ) -> Self {
         let mut by_path = HashMap::new();
         let mut by_stem = HashMap::new();
-        for file in &files {
+        for file in &target_files {
             by_path.entry(file.to_lowercase()).or_insert(file.clone());
+        }
+        for file in &files {
             let stem = Path::new(file)
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_lowercase())
@@ -45,7 +50,6 @@ impl LinkResolver {
         }
 
         Self {
-            exact: files,
             by_path,
             by_stem,
             by_alias: aliases
@@ -57,7 +61,7 @@ impl LinkResolver {
         }
     }
 
-    pub fn resolve(&self, target: &str) -> Option<String> {
+    pub fn resolve(&self, source: &str, target: &str) -> Option<String> {
         // org id: and *Heading links carry their sigil through the parser.
         if let Some(id) = target.strip_prefix("id:") {
             return self.by_id.get(id.trim()).cloned();
@@ -66,14 +70,18 @@ impl LinkResolver {
             return self.by_heading.get(&heading.trim().to_lowercase()).cloned();
         }
 
-        for suffix in ["md", "org", "markdown", "mdx"] {
-            let candidate = format!("{target}.{suffix}");
-            if self.exact.contains(&candidate) {
-                return Some(candidate);
-            }
+        if let Some(hit) = self.resolve_path(target) {
+            return Some(hit);
         }
-        if self.exact.contains(target) {
-            return Some(target.to_string());
+
+        // Markdown-style paths in research indexes are relative to the note
+        // that contains them (`survey/foo.md`, `../papers/foo/summary.md`).
+        // Try the safe relative path after vault-root resolution, preserving
+        // the historical root-path behaviour when both are possible.
+        if let Some(relative) = relative_target(source, target) {
+            if let Some(hit) = self.resolve_path(&relative) {
+                return Some(hit);
+            }
         }
 
         let lower = target.to_lowercase();
@@ -85,6 +93,13 @@ impl LinkResolver {
             .or_else(|| self.by_alias.get(&lower));
         if let Some(hit) = hit {
             return Some(hit.clone());
+        }
+
+        // A path that escaped the vault must never fall through to basename
+        // matching: `../outside.md` cannot accidentally resolve to an
+        // unrelated in-vault note called `outside`.
+        if target.split('/').any(|part| part == "..") && relative_target(source, target).is_none() {
+            return None;
         }
 
         // Relative markdown links such as ../other/Note resolve by basename,
@@ -101,6 +116,47 @@ impl LinkResolver {
         }
         None
     }
+
+    fn resolve_path(&self, target: &str) -> Option<String> {
+        for suffix in ["md", "org", "markdown", "mdx"] {
+            let candidate = format!("{target}.{suffix}");
+            if let Some(hit) = self.by_path.get(&candidate.to_lowercase()) {
+                return Some(hit.clone());
+            }
+        }
+        self.by_path.get(&target.to_lowercase()).cloned()
+    }
+}
+
+/// Resolve a target against the containing note's directory without allowing
+/// `..` to escape the vault. The result is vault-relative and slash-normalised.
+fn relative_target(source: &str, target: &str) -> Option<String> {
+    if target.is_empty() || Path::new(target).is_absolute() {
+        return None;
+    }
+
+    let parent = Path::new(source).parent().unwrap_or_else(|| Path::new(""));
+    let mut components: Vec<String> = parent
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(value) => Some(value.to_string_lossy().into_owned()),
+            Component::CurDir => None,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => None,
+        })
+        .collect();
+
+    for component in Path::new(target).components() {
+        match component {
+            Component::Normal(value) => components.push(value.to_string_lossy().into_owned()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                components.pop()?;
+            }
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+
+    (!components.is_empty()).then(|| components.join("/"))
 }
 
 /// Link targets a vault declares as intentionally unresolved, from the
@@ -178,6 +234,10 @@ pub struct LinkGraph {
 /// anything is resolved, since `[[an alias]]` points at the note declaring it.
 pub fn build_link_graph(config: &Config) -> LinkGraph {
     let paths = all_notes(config);
+    let target_files: BTreeSet<String> = all_files(config)
+        .iter()
+        .map(|path| relative_path(&config.vault_path, path))
+        .collect();
 
     struct Parsed {
         relative: String,
@@ -241,7 +301,7 @@ pub fn build_link_graph(config: &Config) -> LinkGraph {
         }
     }
 
-    let resolver = LinkResolver::new(files.clone(), aliases, ids, headings);
+    let resolver = LinkResolver::new(files.clone(), target_files, aliases, ids, headings);
 
     let mut graph = LinkGraph {
         files,
@@ -252,8 +312,8 @@ pub fn build_link_graph(config: &Config) -> LinkGraph {
 
     for entry in &parsed {
         for target in &entry.links {
-            match resolver.resolve(target) {
-                Some(resolved) if graph.files.contains(&resolved) => {
+            match resolver.resolve(&entry.relative, target) {
+                Some(resolved) => {
                     graph
                         .outgoing
                         .entry(entry.relative.clone())
@@ -358,5 +418,79 @@ mod tests {
         assert!(ignoring(&["proj.knapper.design"]).contains("proj.knapper.design"));
         assert!(ignoring(&["Notes.org"]).contains("Notes"));
         assert!(!ignoring(&["Report.pdf"]).contains("Report"));
+    }
+
+    fn resolver(files: &[&str], targets: &[&str]) -> LinkResolver {
+        LinkResolver::new(
+            files.iter().map(|file| (*file).to_string()).collect(),
+            targets.iter().map(|file| (*file).to_string()).collect(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+        )
+    }
+
+    #[test]
+    fn path_targets_try_vault_root_then_referring_note_directory() {
+        let resolver = resolver(
+            &["Source.md", "research/index.md", "research/survey/foo.md"],
+            &["Source.md", "research/index.md", "research/survey/foo.md"],
+        );
+
+        assert_eq!(
+            resolver.resolve("Source.md", "Source.md"),
+            Some("Source.md".into())
+        );
+        assert_eq!(
+            resolver.resolve("research/index.md", "survey/foo.md"),
+            Some("research/survey/foo.md".into())
+        );
+    }
+
+    #[test]
+    fn relative_parent_targets_are_safe_and_vault_relative() {
+        let relative = resolver(
+            &["research/survey/index.md", "research/papers/foo/summary.md"],
+            &["research/survey/index.md", "research/papers/foo/summary.md"],
+        );
+        assert_eq!(
+            relative.resolve("research/survey/index.md", "../papers/foo/summary.md"),
+            Some("research/papers/foo/summary.md".into())
+        );
+
+        let outside = resolver(&["outside.md"], &["outside.md"]);
+        assert_eq!(outside.resolve("index.md", "../outside.md"), None);
+        assert_eq!(outside.resolve("index.md", "/outside.md"), None);
+    }
+
+    #[test]
+    fn excluded_notes_and_leaf_files_are_resolvable_without_note_stems() {
+        let resolver = resolver(
+            &["Source.md"],
+            &[
+                "Source.md",
+                "logs/Excluded.md",
+                "assets/paper.pdf",
+                "assets/paper.txt",
+                "assets/financials.json",
+            ],
+        );
+        assert_eq!(
+            resolver.resolve("Source.md", "logs/Excluded"),
+            Some("logs/Excluded.md".into())
+        );
+        assert_eq!(
+            resolver.resolve("Source.md", "assets/paper.pdf"),
+            Some("assets/paper.pdf".into())
+        );
+        assert_eq!(
+            resolver.resolve("Source.md", "assets/paper.txt"),
+            Some("assets/paper.txt".into())
+        );
+        assert_eq!(
+            resolver.resolve("Source.md", "assets/financials.json"),
+            Some("assets/financials.json".into())
+        );
+        assert_eq!(resolver.resolve("Source.md", "paper"), None);
     }
 }

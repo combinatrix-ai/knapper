@@ -1065,6 +1065,34 @@
     exit: 3
     stderr_contains: ["No provider named"]
 
+# --------------------------------------------------------- Target discovery --
+
+- name: targets / excluded notes and leaf files are valid destinations
+  vault: targets
+  args: [broken-links, --format, json]
+  expect:
+    json: []
+
+- name: targets / excluded notes and leaves stay out of query results
+  vault: targets
+  args: [query, --format, paths]
+  expect:
+    stdout_contains: ["research/survey/foo.md", "research/papers/foo/summary.md"]
+    stdout_excludes: ["logs/", "assets/", ".pdf", ".txt", ".json"]
+
+- name: targets / hubs rank notes, not leaf targets
+  vault: targets
+  args: [hubs, --limit, "20", --format, paths]
+  expect:
+    stdout_contains: ["research/survey/foo.md", "research/papers/foo/summary.md"]
+    stdout_excludes: ["logs/", "assets/", ".pdf", ".txt", ".json"]
+
+- name: targets / backlinks can name a leaf target
+  vault: targets
+  args: [backlinks, assets/paper.pdf, --format, paths]
+  expect:
+    lines: ["Source.md"]
+
 # ---------------------------------------------------------------- The skill --
 
 - name: bare / the skill is embedded and printable without a vault

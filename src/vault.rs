@@ -215,8 +215,13 @@ pub fn relative_path(vault: &Path, file: &Path) -> String {
         .replace('\\', "/")
 }
 
-/// Every note in the vault, newest first.
-pub fn all_notes(config: &Config) -> Vec<PathBuf> {
+/// Every file in the vault, newest first.
+///
+/// This is deliberately broader than `all_notes`: the link graph needs to
+/// know about excluded notes and leaf attachments without parsing either as
+/// source notes. Callers that need the user's note set should use
+/// `all_notes`, which applies extension and exclude filtering below.
+pub fn all_files(config: &Config) -> Vec<PathBuf> {
     let mut files: Vec<(std::time::SystemTime, PathBuf)> = WalkDir::new(&config.vault_path)
         .into_iter()
         .filter_entry(|e| {
@@ -235,16 +240,8 @@ pub fn all_notes(config: &Config) -> Vec<PathBuf> {
         .filter(|e| e.path().is_file())
         .filter_map(|entry| {
             let path = entry.path();
-            let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-            if !DEFAULT_EXTENSIONS.contains(&ext.as_str()) {
-                return None;
-            }
             // knapper's own config is not one of the user's notes.
             if path.file_name()?.to_str()? == CONFIG_FILENAME {
-                return None;
-            }
-            let relative = relative_path(&config.vault_path, path);
-            if is_excluded(&relative, &config.exclude) {
                 return None;
             }
             let mtime = std::fs::metadata(path)
@@ -257,6 +254,23 @@ pub fn all_notes(config: &Config) -> Vec<PathBuf> {
 
     files.sort_by_key(|(mtime, _)| std::cmp::Reverse(*mtime));
     files.into_iter().map(|(_, p)| p).collect()
+}
+
+/// Every note in the vault, newest first.
+pub fn all_notes(config: &Config) -> Vec<PathBuf> {
+    all_files(config)
+        .into_iter()
+        .filter(|path| {
+            let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+                return false;
+            };
+            if !DEFAULT_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()) {
+                return false;
+            }
+            let relative = relative_path(&config.vault_path, path);
+            !is_excluded(&relative, &config.exclude)
+        })
+        .collect()
 }
 
 /// Resolve a user-supplied file argument against the vault.
@@ -281,6 +295,7 @@ pub fn resolve_path(vault: &Path, file: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use std::fs;
 
     fn excludes(items: &[&str]) -> Vec<String> {
@@ -372,6 +387,25 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(all_notes(&config).len(), 2);
+    }
+
+    #[test]
+    fn all_files_keeps_excluded_notes_and_leaf_files_for_target_discovery() {
+        let dir = vault_with(&["Source.md", "logs/Excluded.md", "assets/paper.pdf"]);
+        let config = Config {
+            vault_path: dir.path().to_path_buf(),
+            exclude: excludes(&["logs"]),
+            ..Default::default()
+        };
+        let files: BTreeSet<_> = all_files(&config)
+            .into_iter()
+            .map(|path| relative_path(&config.vault_path, &path))
+            .collect();
+        assert!(files.contains("logs/Excluded.md"));
+        assert!(files.contains("assets/paper.pdf"));
+        assert!(!all_notes(&config)
+            .iter()
+            .any(|path| { relative_path(&config.vault_path, path) == "logs/Excluded.md" }));
     }
 
     #[test]

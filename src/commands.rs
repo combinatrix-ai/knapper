@@ -107,7 +107,15 @@ pub fn backlinks(
                     .file_name()
                     .map(|s| s.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                if candidate == target_name || candidate == without_ext || basename == target_name {
+                // Attachments are valid leaf targets too. They deliberately
+                // do not participate in basename/stem lookup, so preserve an
+                // exact vault-relative match here in addition to the legacy
+                // note basename forms.
+                if candidate == target_name
+                    || candidate == without_ext
+                    || candidate == relative
+                    || basename == target_name
+                {
                     let mut entry = json!({
                         "source": relative_path(&config.vault_path, &source),
                         "line": index + 1,
@@ -172,6 +180,10 @@ pub fn hubs(config: &Config, limit: usize, format: &str) -> Result<()> {
     let mut ranked: Vec<(String, usize)> = graph
         .incoming
         .iter()
+        // Excluded notes and attachment files are valid leaf targets in the
+        // resolver, but they are not part of knapper's note graph for
+        // reporting purposes. Keep hubs a ranking of queryable notes.
+        .filter(|(file, _)| graph.files.contains(*file))
         .map(|(file, sources)| (file.clone(), sources.len()))
         .collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
