@@ -47,7 +47,9 @@ pub fn split_frontmatter(content: &str) -> (serde_yaml::Mapping, &str) {
     }
 }
 
-fn frontmatter_tags(metadata: &serde_yaml::Mapping) -> Vec<String> {
+/// The tags a note declares as metadata, rather than writing as `#tag` in
+/// its prose. Both carry the same topic; only the syntax differs.
+pub fn frontmatter_tags(metadata: &serde_yaml::Mapping) -> Vec<String> {
     match metadata.get(serde_yaml::Value::String("tags".into())) {
         Some(serde_yaml::Value::String(s)) => vec![s.to_string()],
         Some(serde_yaml::Value::Sequence(items)) => items

@@ -10,6 +10,7 @@
 #![allow(dead_code)]
 
 mod commands;
+mod demote;
 mod graph;
 mod move_tree;
 mod note;
@@ -22,6 +23,7 @@ mod refs;
 mod skill;
 mod tasks;
 mod templater;
+mod topic;
 mod update;
 mod vault;
 
@@ -169,8 +171,12 @@ enum Command {
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
-    /// List incoming links to a file.
+    /// List incoming links to a file, or the notes carrying a '#tag'.
     Backlinks {
+        #[arg(
+            value_name = "FILE|#TAG",
+            help = "A note, or a '#tag' to look up as a topic"
+        )]
         file: String,
         #[arg(
             short = 'A',
@@ -232,8 +238,12 @@ enum Command {
         #[arg(short = 'y', long = "yes")]
         yes: bool,
     },
-    /// Get comprehensive context for a file (for LLMs).
+    /// Get comprehensive context for a file or a '#tag' (for LLMs).
     Context {
+        #[arg(
+            value_name = "FILE|#TAG",
+            help = "A note, or a '#tag' to read as a virtual topic"
+        )]
         file: String,
         #[arg(long = "no-content", help = "Exclude file content")]
         no_content: bool,
@@ -270,6 +280,27 @@ enum Command {
         new: String,
         #[arg(long = "dry-run")]
         dry_run: bool,
+        #[arg(short = 'f', long = "format", default_value = "text")]
+        format: String,
+    },
+    /// Rewrite a hard [[target]] into a soft #tag.
+    #[command(long_about = "Demote a wikilink target to a tag.\n\n\
+        [[X]] is a hard note reference: a missing target is a broken link. #X is a soft\n\
+        topic reference: it labels a note and promises no note exists. This rewrites the\n\
+        exact form -- [[X]] becomes #X -- and reports every occurrence it will not touch,\n\
+        such as [[X|alias]], [[X#heading]], ![[X]] and [[folder/X]].")]
+    Demote {
+        #[arg(value_name = "TARGET", help = "A wikilink target: X or [[X]]")]
+        target: String,
+        #[arg(long = "tag", help = "Write this tag instead of the target itself")]
+        tag: Option<String>,
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        #[arg(
+            long = "allow-existing-note",
+            help = "Demote even though the target names a note that exists"
+        )]
+        allow_existing_note: bool,
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
@@ -455,12 +486,20 @@ fn run() -> Result<()> {
             before,
             format,
         } => commands::links(&config, &file, &format, before, after),
+        // A leading `#` is the only thing that turns a subject argument into
+        // a tag, so a tag is never resolved by accident and a note argument
+        // reaches exactly the code it always did.
         Command::Backlinks {
             file,
             after,
             before,
             format,
-        } => commands::backlinks(&config, &file, &format, before, after),
+        } => match topic::Selector::parse(&file)? {
+            topic::Selector::Tag(tag) => topic::backlinks(&config, &tag, &format, before, after),
+            topic::Selector::Note(file) => {
+                commands::backlinks(&config, &file, &format, before, after)
+            }
+        },
         Command::Orphans {
             include_special,
             format,
@@ -481,17 +520,20 @@ fn run() -> Result<()> {
             no_tasks,
             max_content,
             format,
-        } => notes_cmd::context(
-            &config,
-            &file,
-            &format,
-            &notes_cmd::ContextOptions {
+        } => {
+            let options = notes_cmd::ContextOptions {
                 no_content,
                 no_backlinks,
                 no_tasks,
                 max_content,
-            },
-        ),
+            };
+            match topic::Selector::parse(&file)? {
+                topic::Selector::Tag(tag) => topic::context(&config, &tag, &format, &options),
+                topic::Selector::Note(file) => {
+                    notes_cmd::context(&config, &file, &format, &options)
+                }
+            }
+        }
         Command::Frontmatter(FrontmatterCommand::Get { file, key, format }) => {
             notes_cmd::frontmatter_get(&config, &file, key.as_deref(), &format)
         }
@@ -539,6 +581,22 @@ fn run() -> Result<()> {
             dry_run,
             format,
         } => notes_cmd::rename(&config, &old, &new, dry_run, &format),
+        Command::Demote {
+            target,
+            tag,
+            dry_run,
+            allow_existing_note,
+            format,
+        } => demote::demote(
+            &config,
+            &target,
+            &demote::Options {
+                dry_run,
+                tag,
+                allow_existing_note,
+            },
+            &format,
+        ),
         Command::Query {
             r#where,
             field,

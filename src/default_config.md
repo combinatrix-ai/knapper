@@ -52,6 +52,21 @@ an included note. A path-qualified target is first tried as a vault-root path,
 then relative to the referring note, with `..` traversal that would leave the
 vault rejected. Bare note links retain basename and alias resolution.
 
+## Tags
+
+`[[X]]` and `#X` are different references and neither is configuration.
+`[[X]]` is a hard note reference: it names a note, it is an edge in the graph,
+and a missing target is a broken link. `#X` is a soft topic reference: it
+labels a note, requires no note to exist, is never broken, and is never a node
+in the graph, an orphan or a hub.
+
+A tag is still navigable. `knapper backlinks '#X'` and `knapper context '#X'`
+resolve a tag as a virtual subject — the notes and lines that carry it — and a
+leading `#` is the only thing that asks for that. `knapper demote X` rewrites
+the exact `[[X]]` into `#X` for a vault whose wikilinks were only ever labels;
+`--dry-run` shows the plan first. If a target is meant to stay a link and stay
+unresolved, `ignore_links` above is the other answer.
+
 ## Tasks
 
 - **done_date**: Whether to add completion date when marking tasks done

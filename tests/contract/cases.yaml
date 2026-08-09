@@ -892,6 +892,193 @@
     exit: 1
     stderr_contains: ["already there"]
 
+# ----------------------------------------------- Hard links and soft tags --
+#
+# `[[X]]` names a note and a missing one is a broken link. `#X` labels a topic
+# and promises nothing. The topics fixture is the vault this distinction is
+# for: `[[COO採用]]` written for years as a label. A `#tag` argument looks one
+# up as a virtual subject; `demote` rewrites the exact form and nothing else.
+
+- name: topics / a tag selector finds every note carrying it
+  vault: topics
+  args: [backlinks, "#COO採用", --format, json]
+  # Two inline in the daily note, one nested in Hiring's frontmatter, one org
+  # heading tag. Neither the excluded Archives/ note nor Code.md is an
+  # occurrence: code, inline spans and %%comments%% hold no references.
+  expect:
+    json_length: 4
+    json_contains:
+      - {"source": "Daily/2026-07-01.md", "line": 10, "tag": "COO採用", "where": "inline"}
+      - {"source": "Daily/2026-07-01.md", "line": 22, "tag": "COO採用", "where": "inline"}
+      - {"source": "Notes/Hiring.md", "line": 3, "tag": "COO採用/面接", "where": "declared"}
+      - {"source": "Notes/Log.org", "line": 4, "tag": "COO採用", "where": "declared"}
+    stdout_excludes: ["Archives/Old.md", "Code.md"]
+
+- name: topics / a tag selector answers in paths too
+  vault: topics
+  args: [backlinks, "#COO採用", --format, paths]
+  expect:
+    lines: ["Daily/2026-07-01.md", "Notes/Hiring.md", "Notes/Log.org"]
+
+- name: topics / surrounding lines work the same way for a tag
+  vault: topics
+  args: [backlinks, "#COO採用", -A, "1"]
+  expect:
+    stdout_contains:
+      - "Daily/2026-07-01.md (line 10) #COO採用"
+      - "- 求人票を書いた #COO採用"
+      - "- 別の話題 #work/hiring"
+
+- name: topics / a tag covers the tags nested under it
+  vault: topics
+  args: [backlinks, "#work", --format, paths]
+  expect:
+    lines: ["Daily/2026-07-01.md", "Notes/Hiring.md", "Notes/Log.org"]
+
+- name: topics / a nested tag does not reach back up to its parent
+  vault: topics
+  args: [backlinks, "#COO採用/面接", --format, json]
+  expect:
+    json_length: 1
+    json_at: {"0.source": "Notes/Hiring.md"}
+
+- name: topics / a tag that is not one is refused, not searched
+  vault: topics
+  args: [backlinks, "#8/18", --format, json]
+  expect:
+    exit: 1
+    stderr_contains: ["Not a tag", "#8/18"]
+
+- name: topics / context on a tag is a virtual subject, not a note
+  vault: topics
+  args: [context, "#COO採用", --format, json]
+  expect:
+    json_at:
+      kind: "tag"
+      tag: "COO採用"
+      selector: "#COO採用"
+      notes: ["Daily/2026-07-01.md", "Notes/Hiring.md", "Notes/Log.org"]
+      nested_tags: ["COO採用/面接"]
+      stats: {"notes": 3, "occurrences": 4}
+      "occurrences.0.text": "- 求人票を書いた #COO採用"
+      "tasks.0.text": "面談を設定する #COO採用"
+  # A tag has no note, so it has no path and no content of its own.
+    stdout_excludes: ['"path"', '"headings"']
+
+- name: topics / context on a note is unchanged by any of this
+  vault: topics
+  args: [context, Notes/Hiring.md, --format, json]
+  expect:
+    json_at:
+      path: "Notes/Hiring.md"
+      title: "Hiring"
+    stdout_excludes: ['"kind"']
+
+- name: topics / a label written as a wikilink is still a broken link
+  vault: topics
+  args: [broken-links, --format, paths]
+  sorted: true
+  expect:
+    lines: ["Daily/2026-07-01.md", "Daily/2026-07-02.md", "Notes/Log.org"]
+
+- name: topics / a dry run reports the whole plan and writes nothing
+  vault: topics
+  args: [demote, COO採用, --dry-run]
+  expect:
+    stdout_contains:
+      - "[DRY RUN] Demoting [[COO採用]] -> #COO採用"
+      - "9: [[COO採用]] -> #COO採用"
+      - "cannot be demoted (alias)"
+      - "cannot be demoted (anchor)"
+      - "cannot be demoted (embed)"
+      - "cannot be demoted (path-qualified)"
+      - "cannot be demoted (adjacent text)"
+      - "cannot be demoted (org-mode)"
+      - "Nothing was written."
+    file:
+      "Daily/2026-07-01.md":
+        contains: ["- 面接の準備をした [[COO採用]]"]
+      "Daily/2026-07-02.md":
+        contains: ["[[COO採用]] の続き。"]
+
+- name: topics / a dry run reports the plan as json
+  vault: topics
+  args: [demote, "[[COO採用]]", --dry-run, --format, json]
+  expect:
+    json_at:
+      kind: "demote"
+      target: "COO採用"
+      tag: "COO採用"
+      dry_run: true
+      applied: false
+      links_updated: 2
+      files_updated: ["Daily/2026-07-01.md", "Daily/2026-07-02.md"]
+      "edits.0.changes.0": {"line": 9, "before": "[[COO採用]]", "after": "#COO採用"}
+      "skipped.0": {"file": "Daily/2026-07-01.md", "line": 15, "text": "[[COO採用|採用の件]]", "reason": "alias"}
+
+- name: topics / a demote rewrites the exact form and only the exact form
+  vault: topics
+  args: [demote, COO採用]
+  expect:
+    stdout_contains: ["Done! Demoted 2 links in 2 files."]
+    file:
+      "Daily/2026-07-01.md":
+        contains:
+          - "- 面接の準備をした #COO採用"
+          # Everything a tag cannot hold survives untouched.
+          - "- an alias: [[COO採用|採用の件]]"
+          - "- a heading: [[COO採用#面接]]"
+          - "- a block: [[COO採用^b12]]"
+          - "- an embed: ![[COO採用]]"
+          - "- a path: [[Archives/COO採用]]"
+          - "- 助詞が続く場合: [[COO採用]]の進捗"
+      "Daily/2026-07-02.md":
+        contains: ["#COO採用 の続き。"]
+      # Code, inline spans and comments are not prose and hold no references.
+      "Code.md":
+        contains: ["[[COO採用]] and #COO採用", "`[[COO採用]]`", "%% [[COO採用]] and #COO採用 %%"]
+      # An excluded note is not the vault's to rewrite.
+      "Archives/Old.md":
+        contains: ["Its [[COO採用]] and its #COO採用"]
+      # knapper reads org and does not rewrite it.
+      "Notes/Log.org":
+        contains: ["this [[COO採用]] is"]
+
+- name: topics / demoting a target that names a real note is refused
+  vault: topics
+  args: [demote, Hiring]
+  expect:
+    exit: 1
+    stderr_contains: ["Notes/Hiring.md", "--allow-existing-note"]
+
+- name: topics / a target nothing links to is an error rather than a no-op
+  vault: topics
+  args: [demote, COO採用計画]
+  expect:
+    exit: 1
+    stderr_contains: ["No [[COO採用計画]] wikilinks found."]
+
+- name: topics / a target that cannot be spelled as a tag says how to proceed
+  vault: topics
+  args: [demote, "Daily Tasks"]
+  expect:
+    exit: 1
+    stderr_contains: ["cannot be written as a tag", "--tag Daily-Tasks"]
+
+- name: topics / a path-qualified target is refused
+  vault: topics
+  args: [demote, "Archives/COO採用"]
+  expect:
+    exit: 1
+    stderr_contains: ["Path-qualified target"]
+
+- name: topics / tags still lists what the vault carries
+  vault: topics
+  args: [tags, --format, json]
+  expect:
+    stdout_contains: ["COO採用", "work/hiring", "COO採用/面接"]
+    stdout_excludes: ["Archives"]
+
 # ------------------------------------------------------ The reference broker --
 #
 # A reference names a provider; the local provider config says what runs for

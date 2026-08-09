@@ -1,0 +1,6 @@
+#+title: Log
+#+filetags: :work/hiring:
+
+* 面接メモ :COO採用:
+knapper reads org and does not rewrite it, so this [[COO採用]] is reported
+rather than demoted.

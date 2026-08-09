@@ -227,25 +227,25 @@ pub struct LinkGraph {
     pub files: BTreeSet<String>,
 }
 
-/// Build the link graph.
+struct Parsed {
+    relative: String,
+    links: Vec<String>,
+    aliases: Vec<String>,
+    ids: Vec<String>,
+    headings: Vec<String>,
+}
+
+/// Read every note once, and build the resolver from what they declare.
 ///
-/// Pass one reads each file exactly once, in parallel, collecting the links it
-/// declares and the aliases it answers to. Aliases must be known before
-/// anything is resolved, since `[[an alias]]` points at the note declaring it.
-pub fn build_link_graph(config: &Config) -> LinkGraph {
+/// Aliases must be known before anything is resolved, since `[[an alias]]`
+/// points at the note declaring it, so this pass has to finish before the
+/// first target is looked up.
+fn scan_vault(config: &Config) -> (Vec<Parsed>, BTreeSet<String>, LinkResolver) {
     let paths = all_notes(config);
     let target_files: BTreeSet<String> = all_files(config)
         .iter()
         .map(|path| relative_path(&config.vault_path, path))
         .collect();
-
-    struct Parsed {
-        relative: String,
-        links: Vec<String>,
-        aliases: Vec<String>,
-        ids: Vec<String>,
-        headings: Vec<String>,
-    }
 
     let parsed: Vec<Parsed> = paths
         .par_iter()
@@ -302,6 +302,18 @@ pub fn build_link_graph(config: &Config) -> LinkGraph {
     }
 
     let resolver = LinkResolver::new(files.clone(), target_files, aliases, ids, headings);
+    (parsed, files, resolver)
+}
+
+/// The resolver on its own, for a caller that has to ask whether one target
+/// names a real file without needing the whole graph around it.
+pub fn build_resolver(config: &Config) -> LinkResolver {
+    scan_vault(config).2
+}
+
+/// Build the link graph.
+pub fn build_link_graph(config: &Config) -> LinkGraph {
+    let (parsed, files, resolver) = scan_vault(config);
 
     let mut graph = LinkGraph {
         files,

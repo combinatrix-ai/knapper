@@ -18,7 +18,7 @@ fn print_json(value: &serde_json::Value) {
 }
 
 /// The lines around a match, as `-A`/`-B` ask for. `line` is 1-based.
-fn context_window(lines: &[&str], line: usize, before: usize, after: usize) -> Option<String> {
+pub fn context_window(lines: &[&str], line: usize, before: usize, after: usize) -> Option<String> {
     (before > 0 || after > 0).then(|| {
         let start = (line - 1).saturating_sub(before);
         let end = (line + after).min(lines.len());

@@ -103,6 +103,69 @@ knapper broken-links                # links pointing nowhere
 
 `orphans` hides `Templates/` and dotfolders; `--include-special` shows them.
 
+## Hard links and soft tags
+
+Two kinds of reference, and they mean different things:
+
+- `[[X]]` is a **hard note reference**. It names a note, it is an edge in the
+  graph, and a missing target is a broken link.
+- `#X` is a **soft topic reference**. It labels a note with a subject, needs
+  no note to exist, is never broken, and is never an orphan or a hub.
+
+A `#tag` argument makes the soft one navigable, as a *virtual* subject:
+
+```bash
+knapper backlinks '#COO採用'                 # notes and lines carrying it
+knapper backlinks '#COO採用' -A 2 --format json
+knapper context '#COO採用' --format json     # the whole topic, as one object
+```
+
+Quote it: an unquoted `#` starts a comment in most shells.
+
+- A leading `#` is the **only** thing that selects a tag. Everything else is a
+  note, so nothing changes for ordinary arguments.
+- A tag covers the tags **nested** under it: `#work` finds `#work/hiring`.
+  Every result names the tag it actually matched.
+- Matching is otherwise **exact and case-sensitive**, with no Unicode
+  normalisation — the same rule `tags --find` follows.
+- Occurrences come from prose (`where: "inline"`) and from metadata
+  (`where: "declared"`: YAML `tags:`, org `#+filetags:` and heading tags).
+  Code fences, inline spans and `%%comments%%` hold no occurrences.
+- Results are sorted by path then line, so the JSON is stable between runs.
+- `context '#tag'` returns `kind: "tag"` with `notes`, `occurrences`,
+  `nested_tags`, `tasks` and `stats`, and no `path` — nothing pretends a note
+  exists. `--no-content` drops the line text, `--max-content` truncates it and
+  `--no-tasks` drops the tasks; `--no-backlinks` has nothing to skip.
+
+### Demoting a wikilink to a tag
+
+For the vault that has been writing `[[COO採用]]` for years as a label rather
+than as a claim that such a note exists:
+
+```bash
+knapper demote "COO採用" --dry-run --format json
+knapper demote "COO採用"
+```
+
+Only the **exact** form `[[COO採用]]` becomes `#COO採用`. Everything a tag
+cannot hold is reported under `skipped`, with a file, a line and a reason, and
+left exactly as it was: `alias`, `anchor`, `embed`, `path-qualified`,
+`adjacent text` (`見た[[X]]の` would produce a different tag), `frontmatter`
+and `org-mode`. Code and comments are not references and are neither rewritten
+nor reported.
+
+- `--dry-run` reports every proposed edit and writes nothing.
+- A target that names a **note that exists** is refused: demoting it would
+  drop a real reference. `--allow-existing-note` does it anyway.
+- A target that cannot be spelled as a tag (`Daily Tasks`) is refused before
+  anything is read; `--tag work/daily` names the tag to write instead.
+- A path-qualified target (`Archives/X`) is refused: `demote` names a bare
+  target. Use `--tag a/b` to write a nested tag.
+
+Promotion the other way (`#X` back to `[[X]]`) is deliberately not
+implemented: it would have to invent a note, choose where it lives, and turn a
+label into a promise. Create the note and use `rename`.
+
 ## Renaming without breaking links
 
 The reason to reach for knapper at all. Every inbound link is rewritten, in
@@ -221,6 +284,8 @@ knapper tags --find cli      # files carrying a tag
 ```
 
 Tags are Unicode-aware and nest: `#日本語` and `#parent/child` both work.
+`tags --find` matches one tag exactly; `backlinks '#tag'` covers nested tags
+too and reports the line each occurrence is on.
 
 ## External references
 
@@ -315,7 +380,9 @@ provider command configured for `resolve` may open its own.
 - A malformed YAML header never aborts a whole-vault scan; that note is read
   without its frontmatter.
 - Links inside code fences, inline code and `%%comments%%` are not links, and
-  do not appear in the graph.
+  do not appear in the graph. The same goes for tags.
+- A tag is never a graph node. `orphans`, `hubs` and `broken-links` do not
+  change shape because a vault uses tags, and a `#tag` is never broken.
 - `knapper.config.md` can `exclude:` whole subtrees (imported archives,
   generated logs). Every command honours it.
 - `knapper.config.md` can also `ignore_links:` link targets that are meant to
