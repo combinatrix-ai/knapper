@@ -87,10 +87,15 @@ Logseq, org-mode and the rest -- and backs the compatibility claims in
 
 `fixtures/behaviour/` holds vaults that belong to no ecosystem and exist to
 pin behaviour: `bare` has no config at all, `configured` exercises what
-`knapper.config.md` can change, `refactor` collects every form a link can
-take so a rename has something to get wrong, and `repair` collects every kind
-of broken link — the ones a stale path settles, the ones two files answer to,
-and the ones nothing on disk can settle.
+`knapper.config.md` can change, `vaultproviders` declares a `providers:` block
+that must never be executed or accepted, `refactor` collects every form a link
+can take so a rename has something to get wrong, and `repair` collects every
+kind of broken link — the ones a stale path settles, the ones two files answer
+to, and the ones nothing on disk can settle.
+
+Every other fixture's config must be one knapper accepts. Configs are
+validated strictly, so a fixture carrying an unknown key fails every case that
+uses it rather than the one that meant to test the key.
 
 `repair` is position-sensitive: its contract cases assert occurrences by
 index, so inserting a link in the middle of `Index.md` renumbers them. Add new

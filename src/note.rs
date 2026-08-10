@@ -17,6 +17,25 @@ pub struct Note {
     pub aliases: Vec<String>,
 }
 
+/// The raw frontmatter header and the body below it, or `None` when the
+/// content carries no delimited header at all.
+///
+/// Splitting is separate from parsing because the two callers want opposite
+/// things from a header that does not parse. A note is read without it; the
+/// config file is refused outright, and cannot be if the parse error has
+/// already been swallowed.
+pub fn split_frontmatter_raw(content: &str) -> Option<(&str, &str)> {
+    let rest = content.strip_prefix("---")?;
+    let rest = rest
+        .strip_prefix('\n')
+        .or_else(|| rest.strip_prefix("\r\n"))?;
+    let end = rest.find("\n---")?;
+    Some((
+        &rest[..end],
+        rest[end + 4..].trim_start_matches(['\r', '\n']),
+    ))
+}
+
 /// Split YAML frontmatter from the body.
 ///
 /// A header that does not parse leaves the note readable: the body is used
@@ -24,23 +43,9 @@ pub struct Note {
 /// and one of them must not take down a whole-vault command.
 pub fn split_frontmatter(content: &str) -> (serde_yaml::Mapping, &str) {
     let empty = serde_yaml::Mapping::new();
-
-    let Some(rest) = content.strip_prefix("---") else {
+    let Some((header, body)) = split_frontmatter_raw(content) else {
         return (empty, content);
     };
-    let Some(rest) = rest
-        .strip_prefix('\n')
-        .or_else(|| rest.strip_prefix("\r\n"))
-    else {
-        return (empty, content);
-    };
-    let Some(end) = rest.find("\n---") else {
-        return (empty, content);
-    };
-
-    let header = &rest[..end];
-    let body = rest[end + 4..].trim_start_matches(['\r', '\n']);
-
     match serde_yaml::from_str::<serde_yaml::Value>(header) {
         Ok(serde_yaml::Value::Mapping(map)) => (map, body),
         _ => (empty, body),

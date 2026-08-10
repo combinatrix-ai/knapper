@@ -356,3 +356,49 @@ fn a_written_config_is_owner_only() {
         .mode();
     assert_eq!(mode & 0o777, 0o600, "mode was {:o}", mode & 0o777);
 }
+
+/// A vault is synced, shared, cloned and handed over. A `providers:` block in
+/// `knapper.config.md` is therefore not configuration knapper may act on, and
+/// the marker below is how this test says so: if any path ever executed it,
+/// the file would exist.
+///
+/// The block is refused twice over, and both halves matter. `resolve` never
+/// reads a vault at all, so it cannot reach the declaration; every command
+/// that does read the config refuses the block by name rather than skipping
+/// it, because a vault that looks configured and resolves nothing is the
+/// worse failure.
+#[test]
+fn a_vault_cannot_declare_a_provider() {
+    let vault = tempfile::tempdir().unwrap();
+    std::fs::write(
+        vault.path().join("knapper.config.md"),
+        "---\nvault_path: .\nproviders:\n  fromvault:\n    \
+         command: [touch, executed-a-vault-command]\n---\n",
+    )
+    .unwrap();
+    std::fs::write(vault.path().join("Note.md"), "# Note\n").unwrap();
+
+    // The resolver reads the local provider config and nothing else, so the
+    // vault's provider is simply not there.
+    let resolved = knapper(vault.path(), &["resolve", "knapper://fromvault/x"]);
+    assert_failed(&resolved, 3, "No provider named");
+
+    // A command that does read the vault config says what is wrong with it.
+    let listed = knapper(vault.path(), &["links", "Note.md"]);
+    assert_eq!(code(&listed), 1, "{}", stderr(&listed));
+    for needle in [
+        "`providers` is not vault configuration",
+        "knapper providers set",
+    ] {
+        assert!(
+            stderr(&listed).contains(needle),
+            "stderr lacks {needle:?}: {}",
+            stderr(&listed)
+        );
+    }
+
+    assert!(
+        !vault.path().join("executed-a-vault-command").exists(),
+        "a command declared by a vault was executed"
+    );
+}

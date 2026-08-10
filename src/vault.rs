@@ -70,6 +70,229 @@ fn as_string_list(value: Option<&serde_yaml::Value>) -> Vec<String> {
     }
 }
 
+// ----------------------------------------------------------- The schema --
+//
+// A note is read leniently: a header that does not parse costs that note its
+// frontmatter and nothing else, because one bad file must not take down a
+// whole-vault command. `knapper.config.md` gets the opposite treatment. It
+// decides what every command does to every note, so a misspelt key there is
+// not a key that does nothing -- it is `exclude` silently switching off, or a
+// task marker silently reverting, with no output to say so. Everything below
+// exists to turn that into an error that names the key.
+
+/// What one setting may hold.
+enum Shape {
+    /// A string. `Some(values)` closes it to a set, matched case-insensitively.
+    Text(Option<&'static [&'static str]>),
+    Bool,
+    /// A string, or a list of strings.
+    TextList,
+    /// A block with a fixed set of keys.
+    Fields(&'static [(&'static str, Shape)]),
+    /// A block whose keys the vault chooses, each holding the same fields.
+    Named(&'static [(&'static str, Shape)]),
+}
+
+/// The engines `templater::expand` actually implements.
+pub const TEMPLATE_ENGINES: &[&str] = &["templater", "core"];
+
+/// The flavors that change how a note is read. knapper supports more
+/// ecosystems than this -- Foam, Dendron, Roam, org-mode -- but they need no
+/// setting, so accepting their names here would promise a switch that does
+/// nothing.
+pub const FLAVORS: &[&str] = &["markdown", "logseq"];
+
+const STATUS: &[(&str, Shape)] = &[
+    ("char", Shape::Text(None)),
+    ("closed", Shape::Bool),
+    ("date_format", Shape::Text(None)),
+];
+
+const TASKS: &[(&str, Shape)] = &[
+    ("default_file", Shape::Text(None)),
+    ("inbox", Shape::Text(None)),
+    ("created_date", Shape::Bool),
+    ("created_date_format", Shape::Text(None)),
+    ("statuses", Shape::Named(STATUS)),
+];
+
+const DAILY_NOTES: &[(&str, Shape)] = &[
+    ("folder", Shape::Text(None)),
+    ("template", Shape::Text(None)),
+    ("format", Shape::Text(None)),
+];
+
+const SETTINGS: &[(&str, Shape)] = &[
+    ("vault_path", Shape::Text(None)),
+    ("template_engine", Shape::Text(Some(TEMPLATE_ENGINES))),
+    ("flavor", Shape::Text(Some(FLAVORS))),
+    ("exclude", Shape::TextList),
+    ("ignore_links", Shape::TextList),
+    ("daily_notes", Shape::Fields(DAILY_NOTES)),
+    ("tasks", Shape::Fields(TASKS)),
+];
+
+/// How a value reads in an error, in the terms the config file uses.
+fn yaml_kind(value: &serde_yaml::Value) -> &'static str {
+    match value {
+        serde_yaml::Value::Null => "empty",
+        serde_yaml::Value::Bool(_) => "true/false",
+        serde_yaml::Value::Number(_) => "a number",
+        serde_yaml::Value::String(_) => "a string",
+        serde_yaml::Value::Sequence(_) => "a list",
+        serde_yaml::Value::Mapping(_) => "a block of settings",
+        serde_yaml::Value::Tagged(_) => "a tagged value",
+    }
+}
+
+fn unknown_setting(path: &str, fields: &[(&str, Shape)]) -> anyhow::Error {
+    // A vault travels: it is synced, shared, cloned and handed over. Nothing
+    // it declares may be executable, so `providers:` is refused by name
+    // rather than skipped. Skipping it is the more dangerous answer -- the
+    // vault would look configured, and resolve nothing, without saying why.
+    if path == "providers" {
+        return anyhow!(
+            "`providers` is not vault configuration and is never run from a vault. \
+             A provider command belongs to a machine, not to a set of notes: write it \
+             with `knapper providers set NAME -- COMMAND`, which keeps it in the local \
+             provider config outside the vault."
+        );
+    }
+    let known: Vec<&str> = fields.iter().map(|(name, _)| *name).collect();
+    anyhow!(
+        "unknown setting `{path}`. Settings here: {}",
+        known.join(", ")
+    )
+}
+
+fn check_block(
+    prefix: Option<&str>,
+    block: &serde_yaml::Mapping,
+    fields: &[(&str, Shape)],
+) -> Result<()> {
+    for (key, value) in block {
+        let Some(key) = key.as_str() else {
+            return Err(anyhow!(
+                "settings are named by strings, but one key is {}",
+                yaml_kind(key)
+            ));
+        };
+        let path = match prefix {
+            Some(prefix) => format!("{prefix}.{key}"),
+            None => key.to_string(),
+        };
+        let Some((_, shape)) = fields.iter().find(|(name, _)| *name == key) else {
+            return Err(unknown_setting(&path, fields));
+        };
+        check_value(&path, value, shape)?;
+    }
+    Ok(())
+}
+
+fn check_value(path: &str, value: &serde_yaml::Value, shape: &Shape) -> Result<()> {
+    // A key with nothing under it is a key the vault did not set: `exclude:`
+    // on its own, or `date_format:` clearing a default. Both are answers, not
+    // mistakes, and the loader below already reads them as such.
+    if value.is_null() {
+        return Ok(());
+    }
+    match shape {
+        Shape::Text(allowed) => {
+            let Some(text) = value.as_str() else {
+                return Err(anyhow!(
+                    "`{path}` must be a string, but it is {}",
+                    yaml_kind(value)
+                ));
+            };
+            match allowed {
+                Some(allowed) if !allowed.iter().any(|v| v.eq_ignore_ascii_case(text)) => {
+                    Err(anyhow!(
+                        "`{path}` must be {}, but it is `{text}`",
+                        allowed.join(" or ")
+                    ))
+                }
+                _ => Ok(()),
+            }
+        }
+        Shape::Bool => match value.as_bool() {
+            Some(_) => Ok(()),
+            None => Err(anyhow!(
+                "`{path}` must be true or false, but it is {}",
+                yaml_kind(value)
+            )),
+        },
+        Shape::TextList => match value {
+            serde_yaml::Value::String(_) => Ok(()),
+            serde_yaml::Value::Sequence(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    if !item.is_string() {
+                        return Err(anyhow!(
+                            "`{path}` entry {} must be a string, but it is {}",
+                            index + 1,
+                            yaml_kind(item)
+                        ));
+                    }
+                }
+                Ok(())
+            }
+            other => Err(anyhow!(
+                "`{path}` must be a string or a list of strings, but it is {}",
+                yaml_kind(other)
+            )),
+        },
+        Shape::Fields(fields) => match value.as_mapping() {
+            Some(block) => check_block(Some(path), block, fields),
+            None => Err(anyhow!(
+                "`{path}` must be a block of settings, but it is {}",
+                yaml_kind(value)
+            )),
+        },
+        Shape::Named(fields) => {
+            let Some(block) = value.as_mapping() else {
+                return Err(anyhow!(
+                    "`{path}` must be a block of settings, but it is {}",
+                    yaml_kind(value)
+                ));
+            };
+            for (name, entry) in block {
+                let Some(name) = name.as_str() else {
+                    return Err(anyhow!(
+                        "`{path}` is keyed by names, but one of its keys is {}",
+                        yaml_kind(name)
+                    ));
+                };
+                check_value(&format!("{path}.{name}"), entry, &Shape::Fields(fields))?;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Check a whole config against the schema.
+pub fn validate(settings: &serde_yaml::Mapping) -> Result<()> {
+    check_block(None, settings, SETTINGS)
+}
+
+/// Read the config's settings, refusing what `split_frontmatter` forgives.
+fn config_settings(raw: &str) -> Result<serde_yaml::Mapping> {
+    let Some((header, _)) = crate::note::split_frontmatter_raw(raw) else {
+        return Err(anyhow!(
+            "the settings live in a `---` block at the top of the file, and there is none here"
+        ));
+    };
+    match serde_yaml::from_str::<serde_yaml::Value>(header) {
+        Ok(serde_yaml::Value::Mapping(settings)) => Ok(settings),
+        // A config that declares nothing is a config, and every default
+        // applies. It is a header that means something else that is refused.
+        Ok(serde_yaml::Value::Null) => Ok(serde_yaml::Mapping::new()),
+        Ok(other) => Err(anyhow!(
+            "the `---` block must be a set of settings, but it is {}",
+            yaml_kind(&other)
+        )),
+        Err(err) => Err(anyhow!("the `---` block is not valid YAML: {err}")),
+    }
+}
+
 /// Walk up from `start` looking for the config, then fall back to the home
 /// directory, as the Python implementation does.
 pub fn find_config(start: &Path) -> Option<PathBuf> {
@@ -101,7 +324,11 @@ pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Resu
     }
 
     let raw = std::fs::read_to_string(&path)?;
-    let (meta, _) = crate::note::split_frontmatter(&raw);
+    // Every error from here names the file, so one message is enough to act
+    // on however the config was found -- walked up to, or passed with -c.
+    let meta = config_settings(&raw)
+        .and_then(|settings| validate(&settings).map(|()| settings))
+        .map_err(|err| anyhow!("{}: {err}", path.display()))?;
 
     let get = |key: &str| meta.get(serde_yaml::Value::String(key.into()));
     let get_str = |key: &str, fallback: &str| {
@@ -160,7 +387,10 @@ pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Resu
         tasks_created_date: tasks_bool("created_date", true),
         tasks_created_date_format: tasks_str("created_date_format", "➕ YYYY-MM-DD"),
         tasks_statuses,
-        template_engine: get_str("template_engine", "templater"),
+        // Both are validated case-insensitively, so both are lowered here:
+        // an accepted `Core` that then behaved as templater would be the
+        // silent fallback this validation exists to remove.
+        template_engine: get_str("template_engine", "templater").to_ascii_lowercase(),
         flavor: get_str("flavor", "markdown").to_ascii_lowercase(),
         exclude: as_string_list(get("exclude")),
         ignore_links: as_string_list(get("ignore_links")),
@@ -469,5 +699,217 @@ mod tests {
             .unwrap();
             assert_eq!(config.ignore_links, excludes(&expected), "yaml: {yaml:?}");
         }
+    }
+
+    // ------------------------------------------------- Strict validation --
+
+    /// Load a config written verbatim, header and all.
+    fn load(raw: &str) -> Result<Config> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(CONFIG_FILENAME);
+        fs::write(&path, raw).unwrap();
+        load_config(Some(path.to_str().unwrap()), None)
+    }
+
+    /// Load settings written inside a `---` block, which is the usual case.
+    fn settings(yaml: &str) -> Result<Config> {
+        load(&format!("---\n{yaml}\n---\n"))
+    }
+
+    /// Every rejection must name the thing that is wrong. An error that says
+    /// only "invalid config" leaves the reader diffing their file by hand.
+    fn refused(yaml: &str, needles: &[&str]) {
+        let err = match settings(yaml) {
+            Ok(_) => panic!("accepted: {yaml:?}"),
+            Err(err) => format!("{err}"),
+        };
+        for needle in needles {
+            assert!(err.contains(needle), "{yaml:?} -> {err:?} lacks {needle:?}");
+        }
+        assert!(
+            err.contains(CONFIG_FILENAME),
+            "{yaml:?} -> {err:?} does not say which file"
+        );
+    }
+
+    /// A key knapper does not know is a key that does nothing, and a key that
+    /// does nothing is indistinguishable from a setting that stopped working.
+    #[test]
+    fn an_unknown_setting_is_named_and_refused() {
+        refused("templates:\n  folder: Templates", &["`templates`"]);
+        refused("vault_path: .\nexcludes:\n  - logs", &["`excludes`"]);
+        // The error also says what could have been meant instead.
+        refused("excludes:\n  - logs", &["exclude", "ignore_links"]);
+    }
+
+    /// A typo one level down is the one that hides best: the block it is in
+    /// still parses, still applies, and quietly drops the line.
+    #[test]
+    fn an_unknown_nested_setting_is_named_by_its_path() {
+        refused(
+            "daily_notes:\n  formt: YYYY-MM-DD",
+            &["`daily_notes.formt`"],
+        );
+        refused("tasks:\n  default_fil: daily", &["`tasks.default_fil`"]);
+        refused(
+            "tasks:\n  statuses:\n    done:\n      dateformat: x",
+            &["`tasks.statuses.done.dateformat`"],
+        );
+        // The keys that were removed rather than never added are refused the
+        // same way, with no compatibility path behind them.
+        refused("tasks:\n  done_date: false", &["`tasks.done_date`"]);
+        refused(
+            "tasks:\n  done_date_format: \"✅ YYYY-MM-DD\"",
+            &["`tasks.done_date_format`"],
+        );
+    }
+
+    /// The old loader read a wrong type as an absent one, so `exclude: true`
+    /// excluded nothing and said nothing.
+    #[test]
+    fn a_setting_of_the_wrong_type_is_refused_rather_than_ignored() {
+        refused("exclude: true", &["`exclude`", "list of strings"]);
+        refused(
+            "exclude:\n  - logs\n  - 7",
+            &["`exclude` entry 2", "number"],
+        );
+        refused(
+            "tasks:\n  created_date: yes please",
+            &["`tasks.created_date`", "true or false"],
+        );
+        refused(
+            "daily_notes: Daily",
+            &["`daily_notes`", "block of settings"],
+        );
+        refused("vault_path:\n  - .", &["`vault_path`", "must be a string"]);
+        refused(
+            "tasks:\n  statuses:\n    done:\n      closed: sometimes",
+            &["`tasks.statuses.done.closed`"],
+        );
+    }
+
+    /// Naming an engine or flavor knapper does not implement used to select
+    /// the default one, so the config claimed a behaviour it never got.
+    #[test]
+    fn an_unsupported_engine_or_flavor_is_refused() {
+        refused(
+            "template_engine: jinja",
+            &["`template_engine`", "templater or core"],
+        );
+        refused("flavor: obsidian", &["`flavor`", "markdown or logseq"]);
+        // The supported ones pass, in any case, and reach the config lowered
+        // so nothing downstream compares against the wrong spelling.
+        assert_eq!(
+            settings("template_engine: Core").unwrap().template_engine,
+            "core"
+        );
+        assert_eq!(settings("flavor: LogSeq").unwrap().flavor, "logseq");
+    }
+
+    /// A note survives a header that does not parse. The file that decides
+    /// which notes exist does not get the same forgiveness.
+    #[test]
+    fn a_malformed_config_is_refused_where_a_note_would_be_forgiven() {
+        for raw in [
+            "---\nkey: value: nested\n---\n",
+            "---\n\tbad indent\n---\n",
+            "---\ntitle: \u{2}broken\n---\n",
+        ] {
+            let err = format!("{}", load(raw).unwrap_err());
+            assert!(err.contains("not valid YAML"), "{raw:?} -> {err:?}");
+            // The same header costs an ordinary note only its frontmatter.
+            let (frontmatter, _) = crate::note::split_frontmatter(raw);
+            assert!(frontmatter.is_empty(), "{raw:?}");
+        }
+
+        let err = format!("{}", load("# Just prose\n").unwrap_err());
+        assert!(err.contains("`---` block"), "{err:?}");
+
+        let err = format!("{}", load("---\n- a list\n---\n").unwrap_err());
+        assert!(err.contains("set of settings"), "{err:?}");
+    }
+
+    /// A vault is synced, shared and cloned, so nothing it declares may be
+    /// executable. Refusing the block by name beats skipping it: a skipped
+    /// block leaves the vault looking configured.
+    #[test]
+    fn a_providers_block_is_refused_with_somewhere_else_to_put_it() {
+        refused(
+            "vault_path: .\nproviders:\n  personal:\n    command: [op, read, x]",
+            &[
+                "`providers` is not vault configuration",
+                "never run from a vault",
+                "knapper providers set",
+            ],
+        );
+    }
+
+    /// A config that declares nothing is still a config: strictness is about
+    /// what a vault says, not about making it say something.
+    #[test]
+    fn an_empty_config_is_accepted_and_every_default_applies() {
+        for raw in ["---\n\n---\n", "---\n# only a comment\n---\n"] {
+            let config = load(raw).unwrap_or_else(|e| panic!("{raw:?}: {e}"));
+            assert_eq!(config.template_engine, "templater");
+            assert_eq!(config.flavor, "markdown");
+            assert_eq!(config.daily_template, None);
+            assert!(config.exclude.is_empty());
+        }
+    }
+
+    /// The whole vocabulary, in one config, so the schema cannot drift out
+    /// from under a setting that is still documented.
+    #[test]
+    fn every_documented_setting_is_accepted() {
+        let config = settings(
+            "vault_path: .\n\
+             template_engine: core\n\
+             flavor: markdown\n\
+             exclude:\n  - Templates/\n\
+             ignore_links:\n  - Daily Tasks\n\
+             daily_notes:\n  folder: Diary\n  template: assets/daily.md\n  format: YYYY/MM-DD\n\
+             tasks:\n\
+             \x20 default_file: inbox\n\
+             \x20 inbox: Inbox/Tasks.md\n\
+             \x20 created_date: false\n\
+             \x20 created_date_format: \"➕ YYYY-MM-DD\"\n\
+             \x20 statuses:\n\
+             \x20   done:\n      date_format: null\n\
+             \x20   forward:\n      char: \">\"\n      closed: true\n",
+        )
+        .unwrap();
+
+        assert_eq!(config.template_engine, "core");
+        assert_eq!(config.daily_folder, "Diary");
+        assert_eq!(config.daily_template.as_deref(), Some("assets/daily.md"));
+        assert_eq!(config.daily_format, "YYYY/MM-DD");
+        assert_eq!(config.tasks_default_file, "inbox");
+        assert!(!config.tasks_created_date);
+        assert!(config.tasks_statuses["done"].date_format_set);
+        assert_eq!(config.tasks_statuses["forward"].char, Some('>'));
+    }
+
+    /// `knapper init` must write a config `knapper init` can then read. The
+    /// generated file is prose as well as settings, so nothing else checks
+    /// that its frontmatter still answers to the schema.
+    #[test]
+    fn the_generated_config_validates_against_the_schema() {
+        let config = load(crate::notes_cmd::DEFAULT_CONFIG)
+            .unwrap_or_else(|err| panic!("knapper init writes an invalid config: {err}"));
+        // It configures a template folder, so it excludes that folder: no
+        // folder name is special to knapper any more.
+        assert!(
+            config
+                .exclude
+                .iter()
+                .any(|e| e.trim_end_matches('/') == "Templates"),
+            "the generated config no longer excludes its own template folder: {:?}",
+            config.exclude
+        );
+        assert_eq!(
+            config.daily_template.as_deref(),
+            Some("Templates/daily.md"),
+            "the generated template path and the generated exclude have drifted apart"
+        );
     }
 }

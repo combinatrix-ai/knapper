@@ -1307,15 +1307,30 @@
     exit: 2
     stderr_contains: ["--timeout"]
 
-- name: configured / a provider declared by the vault is not a provider
-  vault: configured
+- name: vaultproviders / a provider declared by the vault is not a provider
+  vault: vaultproviders
   # knapper.config.md declares `providers: fromvault: command: [touch, ...]`.
   # It travels with the notes, so nothing in it is executable configuration:
   # resolving through it must fail the same way an empty machine does.
+  # `resolve` never reads a vault, so the declaration is unreachable here
+  # rather than merely refused.
   args: [resolve, "knapper://fromvault/x"]
   expect:
     exit: 3
     stderr_contains: ["No provider named"]
+
+- name: vaultproviders / a vault command refuses the block by name
+  vault: vaultproviders
+  # The commands that do read knapper.config.md say what is wrong with it and
+  # where executable configuration belongs, rather than skipping the block and
+  # leaving the vault looking configured.
+  args: [links, Note.md]
+  expect:
+    exit: 1
+    stderr_contains:
+      - "`providers` is not vault configuration"
+      - "knapper providers set"
+      - "knapper.config.md"
 
 # --------------------------------------------------------- Target discovery --
 

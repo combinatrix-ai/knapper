@@ -337,7 +337,9 @@ knapper tasks set STATUS TEXT            # config-defined statuses too
 An ambiguous match is refused, not guessed. Narrow it with `--file`.
 
 Built-in statuses: `open` `[ ]`, `wip` `[/]`, `done` `[x]`, `cancel` `[-]`.
-`knapper.config.md` can override their markers or add new ones.
+`knapper.config.md` can override their markers or add new ones under
+`tasks.statuses`. `done` stamps `✅ YYYY-MM-DD` and `cancel` stamps
+`❌ YYYY-MM-DD`; `date_format: null` on a status stops it stamping anything.
 
 ## Daily notes
 
@@ -440,7 +442,9 @@ Rules to follow: `knapper refs` shows only *where* a reference is, never what
 it is worth -- do not claim a value from it. Never write a resolved value into
 a note, a commit, a log or a file; knapper itself does not cache or store one.
 Never propose putting provider commands in `knapper.config.md`; the vault is
-not a place executable configuration can come from.
+not a place executable configuration can come from. knapper refuses a
+`providers:` block there by name, so suggesting one breaks every vault
+command until it is removed.
 
 ## Vault health
 
@@ -472,6 +476,10 @@ provider command configured for `resolve` may open its own.
   generated logs, unexpanded templates). Every command honours it, and it is
   the only way a subtree becomes invisible -- knapper has no folder names it
   treats specially.
+- `knapper.config.md` is validated strictly: an unknown key, a key of the
+  wrong type, or an unsupported `template_engine`/`flavor` is an error naming
+  the key, not a silent default. Notes stay lenient -- a broken YAML header
+  costs that note its frontmatter and nothing more.
 - `knapper.config.md` can also `ignore_links:` link targets that are meant to
   stay unresolved. `lint`, `broken-links` and `query --where broken>0` stop
   reporting them. An entry matches a whole target, case-insensitively; it is
