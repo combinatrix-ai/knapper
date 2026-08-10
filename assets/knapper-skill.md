@@ -352,6 +352,11 @@ Templates expand on creation: Obsidian core (`{{date}}`, `{{time}}`,
 `{{title}}`) and Templater date expressions (`<% tp.date.now("YYYY-MM-DD", -1) %>`,
 `<% tp.date.yesterday() %>`, `<% tp.file.title %>`).
 
+If `daily_notes.template` names a file that cannot be read, `daily` exits
+non-zero and writes nothing -- no note, and not the folder either. Report the
+error rather than retrying; the fix is in `knapper.config.md` or on disk. A
+vault that configured no template gets a plain `# YYYY-MM-DD`.
+
 ## Frontmatter and tags
 
 ```bash

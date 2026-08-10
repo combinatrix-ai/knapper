@@ -749,6 +749,11 @@ Templates expand on creation — both Obsidian Core Templates (`{{date}}`,
 << [[Daily/2026-07-27]] | [[Daily/2026-07-29]] >>
 ```
 
+If `daily_notes.template` names a file knapper cannot read, `knapper daily`
+fails and writes nothing — no note, not even the folder that would have held
+it. A vault that names no template at all gets a plain `# YYYY-MM-DD`, because
+that is all it asked for.
+
 ## External references
 
 Some things belong in your notes by name but not by value: an address, a

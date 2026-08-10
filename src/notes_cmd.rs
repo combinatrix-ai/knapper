@@ -939,14 +939,31 @@ pub fn daily(config: &Config, date: Option<&str>, path_only: bool, format: &str)
 
     let created = !path.exists();
     if created {
+        // Read the template before creating anything. A vault that configured
+        // a template and lost it -- renamed, not yet synced, mistyped in the
+        // config -- wants to hear about it, not to be handed `# 2026-07-28`
+        // and left to notice weeks later that its daily notes went blank. The
+        // failure leaves the vault exactly as it was: no note, no folder.
+        let body = match &config.daily_template {
+            Some(relative) => {
+                let template = config.vault_path.join(relative);
+                let content = std::fs::read_to_string(&template).map_err(|err| {
+                    anyhow!(
+                        "daily_notes.template is {relative:?}, which cannot be read: {err}\n\
+                         Looked in {}. Create it, correct the path, or remove the setting \
+                         to get a plain dated note. Nothing was written.",
+                        template.display()
+                    )
+                })?;
+                crate::templater::expand(&content, &config.template_engine, &name, date)
+            }
+            // No template was ever asked for, so a bare dated note is the
+            // whole of what this vault wants.
+            None => format!("# {name}\n"),
+        };
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let template = config.vault_path.join(&config.daily_template);
-        let body = match std::fs::read_to_string(&template) {
-            Ok(content) => crate::templater::expand(&content, &config.template_engine, &name, date),
-            Err(_) => format!("# {name}\n"),
-        };
         std::fs::write(&path, body)?;
     }
 

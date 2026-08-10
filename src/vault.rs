@@ -26,7 +26,10 @@ pub struct Config {
     pub exclude: Vec<String>,
     pub ignore_links: Vec<String>,
     pub daily_folder: String,
-    pub daily_template: String,
+    /// The template a daily note is created from, exactly as the vault wrote
+    /// it. `None` means the vault named none: only then is a bare dated note
+    /// an acceptable answer, because nobody asked for anything else.
+    pub daily_template: Option<String>,
     pub daily_format: String,
     pub tasks_default_file: String,
     pub tasks_inbox: String,
@@ -44,7 +47,7 @@ impl Default for Config {
             exclude: Vec::new(),
             ignore_links: Vec::new(),
             daily_folder: "Daily".into(),
-            daily_template: "Templates/daily.md".into(),
+            daily_template: None,
             daily_format: "YYYY-MM-DD".into(),
             tasks_default_file: "daily".into(),
             tasks_inbox: "Inbox/Tasks.md".into(),
@@ -109,13 +112,13 @@ pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Resu
     };
 
     let daily = get("daily_notes").and_then(|v| v.as_mapping());
-    let daily_get = |key: &str, fallback: &str| {
+    let daily_raw = |key: &str| {
         daily
             .and_then(|m| m.get(serde_yaml::Value::String(key.into())))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| fallback.to_string())
     };
+    let daily_get = |key: &str, fallback: &str| daily_raw(key).unwrap_or_else(|| fallback.into());
 
     let tasks = get("tasks").and_then(|v| v.as_mapping());
     let tasks_get = |key: &str| tasks.and_then(|m| m.get(serde_yaml::Value::String(key.into())));
@@ -162,7 +165,7 @@ pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Resu
         exclude: as_string_list(get("exclude")),
         ignore_links: as_string_list(get("ignore_links")),
         daily_folder: daily_get("folder", "Daily"),
-        daily_template: daily_get("template", "Templates/daily.md"),
+        daily_template: daily_raw("template"),
         daily_format: daily_get("format", "YYYY-MM-DD"),
         ..Default::default()
     };
