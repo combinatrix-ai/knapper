@@ -12,8 +12,6 @@ daily_notes:
   folder: Daily
   template: Templates/daily.md
   format: YYYY-MM-DD
-templates:
-  folder: Templates
 tasks:
   done_date: true                    # Add completion date when marking done
   done_date_format: "✅ YYYY-MM-DD"  # Format for completion date
