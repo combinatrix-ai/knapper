@@ -273,8 +273,37 @@ pub fn validate(settings: &serde_yaml::Mapping) -> Result<()> {
     check_block(None, settings, SETTINGS)
 }
 
+/// True for a `---` block that closes on the very next line.
+///
+/// The note splitter does not recognise one: it looks for a closing fence at
+/// the start of a *later* line, and an empty block has none. Notes are left
+/// exactly as they were -- changing the splitter would change how every note
+/// in every vault is read -- so the config answers the question here, where
+/// it means one specific thing and nothing else is affected.
+fn is_empty_block(raw: &str) -> bool {
+    let Some(rest) = raw.strip_prefix("---") else {
+        return false;
+    };
+    let Some(rest) = rest
+        .strip_prefix('\n')
+        .or_else(|| rest.strip_prefix("\r\n"))
+    else {
+        return false;
+    };
+    let Some(after) = rest.strip_prefix("---") else {
+        return false;
+    };
+    after.is_empty() || after.starts_with(['\r', '\n'])
+}
+
 /// Read the config's settings, refusing what `split_frontmatter` forgives.
 fn config_settings(raw: &str) -> Result<serde_yaml::Mapping> {
+    // A vault that opens a block and closes it declares nothing, which is a
+    // config saying "every default". Refusing it would be strictness against
+    // a file that has nothing wrong with it.
+    if is_empty_block(raw) {
+        return Ok(serde_yaml::Mapping::new());
+    }
     let Some((header, _)) = crate::note::split_frontmatter_raw(raw) else {
         return Err(anyhow!(
             "the settings live in a `---` block at the top of the file, and there is none here"
@@ -848,13 +877,39 @@ mod tests {
     /// what a vault says, not about making it say something.
     #[test]
     fn an_empty_config_is_accepted_and_every_default_applies() {
-        for raw in ["---\n\n---\n", "---\n# only a comment\n---\n"] {
+        for raw in [
+            "---\n---\n", // closes on the next line, declaring nothing
+            "---\r\n---\r\n",
+            "---\n---",     // and without the trailing newline
+            "---\n\n---\n", // a blank line between the fences
+            "---\n# only a comment\n---\n",
+        ] {
             let config = load(raw).unwrap_or_else(|e| panic!("{raw:?}: {e}"));
             assert_eq!(config.template_engine, "templater");
             assert_eq!(config.flavor, "markdown");
             assert_eq!(config.daily_template, None);
             assert!(config.exclude.is_empty());
+            assert_eq!(config.daily_folder, "Daily");
         }
+    }
+
+    /// The empty block is read by the config alone. Note frontmatter keeps
+    /// the behaviour it had, because the splitter it shares with every other
+    /// note was deliberately left untouched.
+    #[test]
+    fn reading_an_empty_config_block_did_not_change_how_notes_are_read() {
+        let (frontmatter, body) = crate::note::split_frontmatter("---\n---\n# Title\n");
+        assert!(frontmatter.is_empty());
+        assert_eq!(body, "---\n---\n# Title\n");
+    }
+
+    /// A fence that only looks empty is still read as a header, so a longer
+    /// rule cannot smuggle a config past validation.
+    #[test]
+    fn a_longer_rule_is_not_an_empty_block() {
+        assert!(!is_empty_block("---\n----\n"));
+        assert!(!is_empty_block("---\nexclude: logs\n---\n"));
+        assert!(!is_empty_block("# prose\n"));
     }
 
     /// The whole vocabulary, in one config, so the schema cannot drift out
