@@ -33,7 +33,7 @@ knapper walks up from the working directory to find the nearest
 
 ```bash
 cd ~/your-vault
-knapper init          # writes knapper.config.md; defaults are sane
+knapper init          # writes knapper.config.md and Templates/daily.md
 ```
 
 ## Output formats
@@ -358,6 +358,10 @@ If `daily_notes.template` names a file that cannot be read, `daily` exits
 non-zero and writes nothing -- no note, and not the folder either. Report the
 error rather than retrying; the fix is in `knapper.config.md` or on disk. A
 vault that configured no template gets a plain `# YYYY-MM-DD`.
+
+`knapper init` creates the template it configures, so `init` then `daily`
+works in an empty directory. An existing template is never overwritten, not
+even with `--force`.
 
 ## Frontmatter and tags
 

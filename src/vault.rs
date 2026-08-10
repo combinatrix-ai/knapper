@@ -437,9 +437,29 @@ pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Resu
     let raw = std::fs::read_to_string(&path)?;
     // Every error from here names the file, so one message is enough to act
     // on however the config was found -- walked up to, or passed with -c.
-    let meta = config_settings(&raw)
-        .and_then(|settings| validate(&settings).map(|()| settings))
-        .map_err(|err| anyhow!("{}: {err}", path.display()))?;
+    let mut config = config_from(&raw).map_err(|err| anyhow!("{}: {err}", path.display()))?;
+
+    // `config_from` leaves `vault_path` as the config declared it, because
+    // resolving it needs to know where the file was found. An empty or `.`
+    // declaration means "the folder this config is in".
+    let declared = config.vault_path.to_string_lossy().into_owned();
+    let parent = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+    config.vault_path = match vault_override {
+        Some(v) => PathBuf::from(v),
+        None if declared.is_empty() || declared == "." => parent,
+        None => PathBuf::from(shellexpand(&declared)),
+    };
+
+    Ok(config)
+}
+
+/// Everything a config says, validated, before its `vault_path` is resolved
+/// against wherever the file turned out to live.
+///
+/// `knapper init` reads the config it is about to write through this, so the
+/// generated file and what init does about it cannot drift apart.
+pub fn config_from(raw: &str) -> Result<Config> {
+    let meta = config_settings(raw).and_then(|settings| validate(&settings).map(|()| settings))?;
 
     let get = |key: &str| meta.get(serde_yaml::Value::String(key.into()));
     let get_str = |key: &str, fallback: &str| {
@@ -494,7 +514,7 @@ pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Resu
         }
     }
 
-    let mut config = Config {
+    Ok(Config {
         tasks_default_file: tasks_str("default_file", "daily"),
         tasks_inbox: tasks_str("inbox", "Inbox/Tasks.md"),
         tasks_created_date: tasks_bool("created_date", true),
@@ -510,18 +530,9 @@ pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Resu
         daily_folder: daily_get("folder", "Daily"),
         daily_template: daily_raw("template"),
         daily_format: daily_get("format", "YYYY-MM-DD"),
-        ..Default::default()
-    };
-
-    let declared = get("vault_path").and_then(|v| v.as_str()).unwrap_or("");
-    let parent = path.parent().unwrap_or(Path::new(".")).to_path_buf();
-    config.vault_path = match vault_override {
-        Some(v) => PathBuf::from(v),
-        None if declared.is_empty() || declared == "." => parent,
-        None => PathBuf::from(shellexpand(declared)),
-    };
-
-    Ok(config)
+        // Left as written; `load_config` resolves it against the file.
+        vault_path: PathBuf::from(get("vault_path").and_then(|v| v.as_str()).unwrap_or("")),
+    })
 }
 
 fn shellexpand(path: &str) -> String {

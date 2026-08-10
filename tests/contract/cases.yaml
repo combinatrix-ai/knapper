@@ -544,6 +544,18 @@
         # the same breath, because knapper hides no folder by name.
         contains: ["vault_path", "exclude:", "Templates/"]
 
+- name: bare / init creates the daily template it configures
+  vault: bare
+  args: [init]
+  # `daily` fails rather than inventing a body for a missing template, so a
+  # config that names one is only usable if the file is there. tests/init.rs
+  # runs the sequence; this pins what init leaves on disk.
+  expect:
+    stdout_contains: ["Templates/daily.md"]
+    file:
+      "Templates/daily.md":
+        contains: ["{{title}}"]
+
 - name: bare / a vault command says how to fix it, and does not traceback
   vault: bare
   args: [links, Note.md]

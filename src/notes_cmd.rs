@@ -1198,16 +1198,78 @@ pub fn rename(config: &Config, old: &str, new: &str, dry_run: bool, format: &str
 
 pub const DEFAULT_CONFIG: &str = include_str!("default_config.md");
 
+/// The body `knapper init` puts in the template it creates.
+///
+/// It is what `knapper daily` used to invent when a template was missing:
+/// `{{title}}` expands to the note's date under either engine, so a fresh
+/// vault gets exactly the daily note it always got. It is a starting point to
+/// edit, not a suggestion about how anyone should keep a journal.
+pub const DEFAULT_TEMPLATE: &str = "# {{title}}\n";
+
+/// Create the daily-note template the generated config points at.
+///
+/// Returns the path if one was written. An existing file is never touched:
+/// `--force` is about replacing knapper's own config, and a vault's template
+/// is the user's writing, not knapper's.
+fn write_default_template(dir: &Path, relative: &str) -> Result<Option<PathBuf>> {
+    let target = dir.join(relative);
+    if target.exists() {
+        return Ok(None);
+    }
+
+    // Remember whether the folder is ours, so a failed write leaves nothing
+    // of it behind either.
+    let parent = target.parent().map(Path::to_path_buf);
+    let made_parent = match &parent {
+        Some(parent) if !parent.exists() => {
+            std::fs::create_dir_all(parent)?;
+            true
+        }
+        _ => false,
+    };
+
+    if let Err(err) = std::fs::write(&target, DEFAULT_TEMPLATE) {
+        if made_parent {
+            // Only ever removes the directory this call created, and only
+            // while it is still empty.
+            let _ = std::fs::remove_dir(parent.unwrap());
+        }
+        return Err(anyhow!("Could not write {}: {err}", target.display()));
+    }
+    Ok(Some(target))
+}
+
 pub fn init(force: bool) -> Result<()> {
-    let path = std::env::current_dir()?.join(crate::vault::CONFIG_FILENAME);
+    let dir = std::env::current_dir()?;
+    let path = dir.join(crate::vault::CONFIG_FILENAME);
     if path.exists() && !force {
         return Err(anyhow!(
             "Config file already exists: {}\nUse --force to overwrite.",
             path.display()
         ));
     }
+
+    // The generated config names a daily-note template, and `knapper daily`
+    // fails rather than inventing a body when that template is missing. So
+    // init writes the file it is about to configure, and reads the path out
+    // of the config itself rather than repeating it here.
+    //
+    // The template goes first: if it cannot be written, no config is left
+    // pointing at a file that is not there. The reverse order would report
+    // success and hand the user a vault whose `daily` is already broken.
+    let template = crate::vault::config_from(DEFAULT_CONFIG)
+        .map_err(|err| anyhow!("the built-in config is invalid, which is a bug: {err}"))?
+        .daily_template;
+    let written = match &template {
+        Some(relative) => write_default_template(&dir, relative)?,
+        None => None,
+    };
+
     std::fs::write(&path, DEFAULT_CONFIG)?;
     println!("Created: {}", path.display());
+    if let Some(template) = written {
+        println!("Created: {}", template.display());
+    }
     Ok(())
 }
 

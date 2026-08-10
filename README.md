@@ -140,6 +140,11 @@ knapper lint             # how healthy is this vault?
 knapper tasks --overdue  # what slipped?
 ```
 
+`knapper init` writes two files: the config, and the `Templates/daily.md` the
+config points at, so `knapper daily` works straight afterwards. A template you
+already have is never overwritten, `--force` included — that flag is about
+replacing knapper's config, not your writing.
+
 `knapper init` is one-time; after that, knapper walks up from wherever you are
 to find the nearest `knapper.config.md`, so commands work from any
 subdirectory.
@@ -858,7 +863,7 @@ timed out, or returned nothing usable.
 
 | Command | What it does |
 |---------|--------------|
-| `knapper init` | Write `knapper.config.md` in the current directory |
+| `knapper init` | Write `knapper.config.md`, and the daily template it names |
 | `knapper query` | Filter notes by frontmatter, inline fields and link counts |
 | `knapper fields` | List what `query` can filter on |
 | `knapper lint` | Vault health: `broken-links`, `orphans`, `duplicates`, `empty`, `frontmatter` |
@@ -922,7 +927,9 @@ the daily-note template lives there and an unexpanded template is not one of
 your notes; put templates elsewhere and the `exclude` entry moves with them.
 `daily_notes.template` is read by path, so excluding its folder does not stop
 `knapper daily`. If that template is configured and cannot be read, `knapper
-daily` fails and writes nothing at all, rather than inventing a note body.
+daily` fails and writes nothing at all, rather than inventing a note body —
+which is why `knapper init` creates the template it configures rather than
+leaving a fresh vault one command short of working.
 
 ### Links that are meant to stay unresolved
 
