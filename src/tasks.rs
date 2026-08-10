@@ -94,13 +94,6 @@ pub fn resolve_statuses(config: &Config) -> BTreeMap<String, Status> {
         ("wip".to_string(), builtin('/', false, None)),
     ]);
 
-    // The legacy done_date pair stays authoritative for `done`.
-    if let Some(done) = merged.get_mut("done") {
-        done.date_format = config
-            .tasks_done_date
-            .then(|| config.tasks_done_date_format.clone());
-    }
-
     for (name, attrs) in &config.tasks_statuses {
         match merged.get_mut(name) {
             Some(existing) => {
@@ -1058,12 +1051,25 @@ mod tests {
         assert_eq!(status_name('>', &s), "forward");
     }
 
+    /// `done` carries a completion marker unless the vault says otherwise,
+    /// and it says so the same way every other status does.
     #[test]
-    fn disabling_the_done_date_removes_its_marker() {
-        let config = Config {
-            tasks_done_date: false,
-            ..Default::default()
-        };
+    fn the_done_marker_is_on_by_default_and_an_explicit_null_clears_it() {
+        assert_eq!(
+            resolve_statuses(&Config::default())["done"]
+                .date_format
+                .as_deref(),
+            Some("✅ YYYY-MM-DD")
+        );
+
+        let mut config = Config::default();
+        config.tasks_statuses.insert(
+            "done".into(),
+            StatusOverride {
+                date_format_set: true,
+                ..Default::default()
+            },
+        );
         assert_eq!(resolve_statuses(&config)["done"].date_format, None);
     }
 

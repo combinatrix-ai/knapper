@@ -13,17 +13,17 @@ daily_notes:
   template: Templates/daily.md
   format: YYYY-MM-DD
 tasks:
-  done_date: true                    # Add completion date when marking done
-  done_date_format: "✅ YYYY-MM-DD"  # Format for completion date
   created_date: true                 # Add created date when creating new tasks
   created_date_format: "➕ YYYY-MM-DD"  # Format for created date
   default_file: daily                # daily | inbox | path
   inbox: Inbox/Tasks.md              # Inbox file path
-  # Built-in statuses: open " ", done "x", wip "/", cancel "-".
+  # Built-in statuses: open " ", done "x" ✅, wip "/", cancel "-" ❌.
   # Override fields on existing statuses or add custom ones. Example:
   # statuses:
   #   cancel:
   #     date_format: "🚫 YYYY-MM-DD"  # override the default ❌ marker
+  #   done:
+  #     date_format: null             # stop stamping completion dates
   #   forward:
   #     char: ">"
   #     closed: true
@@ -67,7 +67,10 @@ unresolved, `ignore_links` above is the other answer.
 
 ## Tasks
 
-- **done_date**: Whether to add completion date when marking tasks done
 - **created_date**: Whether to add created date when creating new tasks
+- **statuses**: A status's `date_format` is the marker stamped when a task
+  enters it. `done` stamps `✅ YYYY-MM-DD` and `cancel` stamps
+  `❌ YYYY-MM-DD` unless overridden; writing `date_format: null` stops a
+  status stamping anything at all.
 - **default_file**: Where to add new tasks (daily = today's daily note, inbox = inbox file,
   or a specific path)
