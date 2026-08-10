@@ -891,6 +891,8 @@ assume a conventional layout:
 ---
 vault_path: .
 template_engine: templater   # or "core"
+exclude:
+  - Templates/               # unexpanded templates are not notes
 daily_notes:
   folder: Daily
   template: Templates/daily.md
@@ -902,6 +904,20 @@ tasks:
 
 The generated file documents the rest, including custom task statuses.
 Nothing in it is Obsidian-specific.
+
+Every setting is checked when it is read. An unknown key, a key of the wrong
+type, or a `template_engine` or `flavor` knapper does not implement is an
+error naming the key, rather than a default quietly taking over — a config
+typo otherwise changes what every command does and says nothing. This strictness
+is the config's alone: an ordinary note with a broken YAML header is still read
+without its frontmatter rather than aborting a scan.
+
+No folder name is special. `Templates/` is in the generated `exclude` because
+the daily-note template lives there and an unexpanded template is not one of
+your notes; put templates elsewhere and the `exclude` entry moves with them.
+`daily_notes.template` is read by path, so excluding its folder does not stop
+`knapper daily`. If that template is configured and cannot be read, `knapper
+daily` fails and writes nothing at all, rather than inventing a note body.
 
 ### Links that are meant to stay unresolved
 

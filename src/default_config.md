@@ -2,9 +2,10 @@
 vault_path: .
 template_engine: templater
 # flavor: markdown        # markdown (default) | logseq
-# exclude:                # subtrees no whole-vault command should read
-#   - Archives/
-#   - logs/
+exclude:                  # subtrees no whole-vault command should read
+  - Templates/            # unexpanded templates are not notes; see below
+# - Archives/
+# - logs/
 # ignore_links:           # link targets that are meant to stay unresolved
 #   - Daily Tasks         # matched whole, case-insensitively, never as a
 #   - Archive/Old Index   # substring; write the path to ignore a path link
@@ -33,6 +34,18 @@ tasks:
 # Knapper Configuration
 
 This is the configuration file for knapper CLI.
+
+## Templates
+
+No folder name is special to knapper. `Templates/` is in `exclude` above
+because the daily-note template lives there and an unexpanded template is not
+one of your notes: left included it is an orphan with no incoming links, and a
+stub with almost no prose, in every `knapper lint` run. Move the templates and
+move the `exclude` entry with them; keep them where they are and knapper needs
+no further telling.
+
+`daily_notes.template` is read by path, so excluding the folder does not stop
+`knapper daily` from expanding it.
 
 ## Links
 

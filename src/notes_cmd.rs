@@ -787,10 +787,12 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
 
     if checks.iter().any(|c| c == "orphans") {
         let graph = graph.as_ref().unwrap();
+        // As in `knapper orphans`: only hidden files are special here. A
+        // folder of templates is hidden by `exclude`, not by its name.
         let orphans: Vec<&String> = graph
             .files
             .iter()
-            .filter(|f| !f.starts_with("Templates/") && !f.starts_with('.'))
+            .filter(|f| !f.starts_with('.'))
             .filter(|f| graph.incoming.get(*f).map_or(true, |i| i.is_empty()))
             .collect();
         summary.insert("orphans".into(), json!(orphans.len()));
@@ -850,9 +852,6 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
         let mut empty = Vec::new();
         for path in &notes {
             let relative = relative_path(&config.vault_path, path);
-            if relative.starts_with("Templates/") {
-                continue;
-            }
             let Ok(content) = std::fs::read_to_string(path) else {
                 continue;
             };
@@ -883,9 +882,6 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
         let mut missing = Vec::new();
         for path in &notes {
             let relative = relative_path(&config.vault_path, path);
-            if relative.starts_with("Templates/") {
-                continue;
-            }
             let Ok(content) = std::fs::read_to_string(path) else {
                 continue;
             };

@@ -156,10 +156,14 @@ pub fn backlinks(
 pub fn orphans(config: &Config, format: &str, include_special: bool) -> Result<()> {
     let graph = build_link_graph(config);
 
+    // A folder of templates is not special by name: a vault that does not
+    // want its templates counted excludes them in `knapper.config.md`, the
+    // same way it hides any other subtree. Only hidden files are dropped
+    // here, and `--include-special` is what asks for them back.
     let orphans: Vec<String> = graph
         .files
         .iter()
-        .filter(|f| include_special || (!f.starts_with("Templates/") && !f.starts_with('.')))
+        .filter(|f| include_special || !f.starts_with('.'))
         .filter(|f| graph.incoming.get(*f).map_or(true, |i| i.is_empty()))
         .cloned()
         .collect();

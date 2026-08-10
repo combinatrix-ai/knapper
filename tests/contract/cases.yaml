@@ -540,7 +540,9 @@
     stdout_contains: ["knapper.config.md"]
     file:
       "knapper.config.md":
-        contains: ["vault_path"]
+        # The generated config declares a template folder and excludes it in
+        # the same breath, because knapper hides no folder by name.
+        contains: ["vault_path", "exclude:", "Templates/"]
 
 - name: bare / a vault command says how to fix it, and does not traceback
   vault: bare
@@ -560,15 +562,29 @@
   vault: configured
   args: [orphans, --format, json]
   # Real.md is linked only from the excluded log, so it is an orphan now.
-  # Templates/ is hidden from orphans by default.
+  # Templates/ is not excluded by this fixture, and no folder name is special
+  # to knapper, so its template is an orphan like any other unlinked note.
   expect:
-    json: ["Lonely.md", "Real.md"]
+    json: ["Lonely.md", "Real.md", "Templates/daily.md"]
 
-- name: configured / --include-special reveals Templates
+- name: configured / --include-special is about hidden files, not folder names
   vault: configured
   args: [orphans, --include-special, --format, json]
   expect:
     json: ["Lonely.md", "Real.md", "Templates/daily.md"]
+
+- name: configured / lint counts an unexcluded template like any other note
+  vault: configured
+  args: [lint, --format, json]
+  # lint's orphan and frontmatter checks used to skip a folder called
+  # Templates/ by name. They no longer do, so its template is counted with
+  # Lonely.md and Real.md. `knapper init` writes `exclude: [Templates/]` for
+  # exactly this reason.
+  expect:
+    stdout_contains: ['"file": "Templates/daily.md"']
+    json_at:
+      summary.orphans: 3
+      summary.missing_frontmatter: 3
 
 - name: configured / an excluded note contributes no tags
   vault: configured

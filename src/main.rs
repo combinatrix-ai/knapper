@@ -199,10 +199,7 @@ enum Command {
     },
     /// Find orphan notes (not linked by any other note).
     Orphans {
-        #[arg(
-            long = "include-special",
-            help = "Include Templates/ and hidden folders"
-        )]
+        #[arg(long = "include-special", help = "Include hidden folders")]
         include_special: bool,
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,

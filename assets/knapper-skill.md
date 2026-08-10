@@ -116,7 +116,9 @@ knapper broken-links                # links pointing nowhere
 knapper broken-links --format json  # one record per occurrence, with position
 ```
 
-`orphans` hides `Templates/` and dotfolders; `--include-special` shows them.
+`orphans` hides dotfolders; `--include-special` shows them. No other folder is
+special by name: a template folder stays out of `orphans` and `lint` only by
+being listed in `exclude:`, which is what `knapper init` writes.
 
 `broken-links --format json` is occurrence-oriented, not a per-file summary:
 each record carries `source`, `line`, `column` (1-based, in characters, and
@@ -462,7 +464,9 @@ provider command configured for `resolve` may open its own.
 - A tag is never a graph node. `orphans`, `hubs` and `broken-links` do not
   change shape because a vault uses tags, and a `#tag` is never broken.
 - `knapper.config.md` can `exclude:` whole subtrees (imported archives,
-  generated logs). Every command honours it.
+  generated logs, unexpanded templates). Every command honours it, and it is
+  the only way a subtree becomes invisible -- knapper has no folder names it
+  treats specially.
 - `knapper.config.md` can also `ignore_links:` link targets that are meant to
   stay unresolved. `lint`, `broken-links` and `query --where broken>0` stop
   reporting them. An entry matches a whole target, case-insensitively; it is
