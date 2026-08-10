@@ -21,7 +21,6 @@ pub struct StatusOverride {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub vault_path: PathBuf,
-    pub config_path: PathBuf,
     pub template_engine: String,
     pub flavor: String,
     pub exclude: Vec<String>,
@@ -42,7 +41,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             vault_path: PathBuf::from("."),
-            config_path: PathBuf::new(),
             template_engine: "templater".into(),
             flavor: "markdown".into(),
             exclude: Vec::new(),
@@ -158,7 +156,6 @@ pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Resu
     }
 
     let mut config = Config {
-        config_path: path.clone(),
         tasks_default_file: tasks_str("default_file", "daily"),
         tasks_inbox: tasks_str("inbox", "Inbox/Tasks.md"),
         tasks_done_date: tasks_bool("done_date", true),
