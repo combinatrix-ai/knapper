@@ -74,25 +74,34 @@ pub struct Status {
     pub date_format: Option<String>,
 }
 
+/// The statuses knapper knows without being told: name, checkbox character,
+/// whether it closes a task, and the marker stamped when a task enters it.
+///
+/// `vault`'s config validation reads this too. A config may override one of
+/// these without repeating its `char`, and must supply a `char` for anything
+/// else, so the two rules have to agree on which names are built in.
+pub const BUILTIN_STATUSES: &[(&str, char, bool, Option<&str>)] = &[
+    ("open", ' ', false, None),
+    ("done", 'x', true, Some("✅ YYYY-MM-DD")),
+    ("cancel", '-', true, Some("❌ YYYY-MM-DD")),
+    ("wip", '/', false, None),
+];
+
 /// The built-in statuses, merged with whatever the config overrides or adds.
 pub fn resolve_statuses(config: &Config) -> BTreeMap<String, Status> {
-    let builtin = |char, closed, date_format: Option<&str>| Status {
-        char,
-        closed,
-        date_format: date_format.map(str::to_string),
-    };
-    let mut merged = BTreeMap::from([
-        ("open".to_string(), builtin(' ', false, None)),
-        (
-            "done".to_string(),
-            builtin('x', true, Some("✅ YYYY-MM-DD")),
-        ),
-        (
-            "cancel".to_string(),
-            builtin('-', true, Some("❌ YYYY-MM-DD")),
-        ),
-        ("wip".to_string(), builtin('/', false, None)),
-    ]);
+    let mut merged: BTreeMap<String, Status> = BUILTIN_STATUSES
+        .iter()
+        .map(|(name, char, closed, date_format)| {
+            (
+                (*name).to_string(),
+                Status {
+                    char: *char,
+                    closed: *closed,
+                    date_format: date_format.map(str::to_string),
+                },
+            )
+        })
+        .collect();
 
     for (name, attrs) in &config.tasks_statuses {
         match merged.get_mut(name) {

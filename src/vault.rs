@@ -270,7 +270,89 @@ fn check_value(path: &str, value: &serde_yaml::Value, shape: &Shape) -> Result<(
 
 /// Check a whole config against the schema.
 pub fn validate(settings: &serde_yaml::Mapping) -> Result<()> {
-    check_block(None, settings, SETTINGS)
+    check_block(None, settings, SETTINGS)?;
+    check_statuses(settings)
+}
+
+/// What `tasks.statuses` means, which the shapes above cannot express.
+///
+/// A status is addressed by its checkbox character: that is how `- [x]` in a
+/// note becomes `done`, and how `tasks set` writes one back. So a status
+/// without a character is a status no task can be in, and two statuses
+/// sharing a character make every task in either of them ambiguous. Both used
+/// to be accepted and then quietly dropped at resolve time.
+fn check_statuses(settings: &serde_yaml::Mapping) -> Result<()> {
+    let declared = settings
+        .get(serde_yaml::Value::String("tasks".into()))
+        .and_then(|v| v.as_mapping())
+        .and_then(|tasks| tasks.get(serde_yaml::Value::String("statuses".into())))
+        .and_then(|v| v.as_mapping());
+    let Some(declared) = declared else {
+        return Ok(());
+    };
+
+    // Start from what knapper already knows and apply the config on top, so
+    // the checks below see the statuses a run would actually have. A vault
+    // may hand one status's character to another without tripping the
+    // duplicate rule, as long as the result is still unambiguous.
+    let mut chars: std::collections::BTreeMap<String, char> = crate::tasks::BUILTIN_STATUSES
+        .iter()
+        .map(|(name, char, ..)| ((*name).to_string(), *char))
+        .collect();
+    let builtin_names: Vec<&str> = crate::tasks::BUILTIN_STATUSES
+        .iter()
+        .map(|(name, ..)| *name)
+        .collect();
+
+    for (name, attrs) in declared {
+        // Both were checked by the shapes above; this pass only adds meaning.
+        let name = name.as_str().unwrap_or_default();
+        let path = format!("tasks.statuses.{name}");
+        let written = attrs
+            .as_mapping()
+            .and_then(|attrs| attrs.get(serde_yaml::Value::String("char".into())))
+            .filter(|char| !char.is_null());
+
+        match written {
+            Some(char) => {
+                let text = char.as_str().unwrap_or_default();
+                let mut scalars = text.chars();
+                let (Some(char), None) = (scalars.next(), scalars.next()) else {
+                    return Err(anyhow!(
+                        "`{path}.char` is the single character written between the brackets \
+                         of `- [ ]`, but it is {text:?}"
+                    ));
+                };
+                chars.insert(name.to_string(), char);
+            }
+            // Overriding `done`'s marker while leaving its `x` alone is the
+            // common case, and there is nothing to inherit for a new name.
+            None if !chars.contains_key(name) => {
+                return Err(anyhow!(
+                    "`{path}` is a new status, so it must set `char` -- the character that \
+                     writes it and the only way a task can be in it. Only the built-in \
+                     statuses ({}) can be overridden without one.",
+                    builtin_names.join(", ")
+                ));
+            }
+            None => {}
+        }
+    }
+
+    // Matching is case-insensitive for ASCII, so `x` and `X` are one
+    // character as far as reading a note goes.
+    let mut taken: std::collections::BTreeMap<char, &str> = Default::default();
+    for (name, char) in &chars {
+        let key = char.to_ascii_lowercase();
+        if let Some(other) = taken.insert(key, name) {
+            return Err(anyhow!(
+                "`tasks.statuses` gives `{char}` to both `{other}` and `{name}`. A task \
+                 written `- [{char}]` could be either, so knapper cannot tell them apart: \
+                 give one of them a different `char`."
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// True for a `---` block that closes on the very next line.
@@ -397,9 +479,11 @@ pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Resu
             tasks_statuses.insert(
                 name.to_string(),
                 StatusOverride {
+                    // Validation has already refused anything but a single
+                    // character here, so there is nothing left to drop.
                     char: field("char")
                         .and_then(|v| v.as_str())
-                        .and_then(|s| (s.chars().count() == 1).then(|| s.chars().next().unwrap())),
+                        .and_then(|s| s.chars().next()),
                     closed: field("closed").and_then(|v| v.as_bool()),
                     date_format: field("date_format")
                         .and_then(|v| v.as_str())
@@ -856,6 +940,90 @@ mod tests {
 
         let err = format!("{}", load("---\n- a list\n---\n").unwrap_err());
         assert!(err.contains("set of settings"), "{err:?}");
+    }
+
+    /// A status is reached by its checkbox character, so a new one without a
+    /// `char` is a status no task can ever be in. It used to be accepted and
+    /// then dropped at resolve time, leaving `tasks set forward` failing
+    /// against a config that plainly declares `forward`.
+    #[test]
+    fn a_new_status_must_bring_the_character_that_writes_it() {
+        refused(
+            "tasks:\n  statuses:\n    forward:\n      closed: true",
+            &["`tasks.statuses.forward`", "must set `char`"],
+        );
+        refused(
+            "tasks:\n  statuses:\n    forward:\n      char: null",
+            &["`tasks.statuses.forward`", "must set `char`"],
+        );
+
+        // A built-in has a character already, so overriding anything else
+        // about it stays legal -- that is the common case.
+        for yaml in [
+            "tasks:\n  statuses:\n    done:\n      date_format: null",
+            "tasks:\n  statuses:\n    cancel:\n      date_format: \"🚫 YYYY-MM-DD\"",
+            "tasks:\n  statuses:\n    wip:\n      closed: true",
+        ] {
+            settings(yaml).unwrap_or_else(|err| panic!("{yaml:?}: {err}"));
+        }
+    }
+
+    /// `char` is one character between the brackets. Anything else was
+    /// silently ignored, so the status kept whatever it had before.
+    #[test]
+    fn a_char_must_be_exactly_one_scalar() {
+        for bad in ["\">>\"", "\"\"", "\"[x]\"", "\" x\""] {
+            refused(
+                &format!("tasks:\n  statuses:\n    forward:\n      char: {bad}"),
+                &["`tasks.statuses.forward.char`"],
+            );
+        }
+
+        // One scalar is one scalar whatever it costs in bytes.
+        for good in ["\">\"", "\"✓\"", "\"あ\""] {
+            let yaml = format!("tasks:\n  statuses:\n    forward:\n      char: {good}");
+            let config = settings(&yaml).unwrap_or_else(|err| panic!("{yaml:?}: {err}"));
+            assert!(config.tasks_statuses["forward"].char.is_some());
+        }
+    }
+
+    /// Two statuses sharing a character make every task in either of them
+    /// ambiguous: `- [x]` would report as whichever name sorts first.
+    #[test]
+    fn two_statuses_cannot_share_one_character() {
+        refused(
+            "tasks:\n  statuses:\n    finished:\n      char: \"x\"",
+            &["`x`", "`done`", "`finished`"],
+        );
+        // Case-insensitively, because that is how a note is read.
+        refused(
+            "tasks:\n  statuses:\n    finished:\n      char: \"X\"",
+            &["`done`", "`finished`"],
+        );
+        // A vault may still hand one character to another status, as long as
+        // the result is unambiguous.
+        let config = settings(
+            "tasks:\n  statuses:\n    done:\n      char: \"D\"\n    \
+             finished:\n      char: \"x\"",
+        )
+        .unwrap();
+        assert_eq!(config.tasks_statuses["done"].char, Some('D'));
+        assert_eq!(config.tasks_statuses["finished"].char, Some('x'));
+    }
+
+    /// The validator and the resolver must agree on which names are built in,
+    /// or a status would be refused for lacking a `char` it would have
+    /// inherited.
+    #[test]
+    fn the_validator_and_the_resolver_share_one_list_of_built_ins() {
+        for (name, ..) in crate::tasks::BUILTIN_STATUSES {
+            let yaml = format!("tasks:\n  statuses:\n    {name}:\n      closed: true");
+            settings(&yaml).unwrap_or_else(|err| panic!("built-in {name} was refused: {err}"));
+        }
+        let resolved = crate::tasks::resolve_statuses(&Config::default());
+        for (name, char, ..) in crate::tasks::BUILTIN_STATUSES {
+            assert_eq!(resolved[*name].char, *char, "{name}");
+        }
     }
 
     /// A vault is synced, shared and cloned, so nothing it declares may be

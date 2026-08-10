@@ -19,7 +19,9 @@ tasks:
   default_file: daily                # daily | inbox | path
   inbox: Inbox/Tasks.md              # Inbox file path
   # Built-in statuses: open " ", done "x" ✅, wip "/", cancel "-" ❌.
-  # Override fields on existing statuses or add custom ones. Example:
+  # Override fields on existing statuses or add custom ones. A new status
+  # must set `char` -- one character, and not one already in use, because
+  # that is how a task says which status it is in. Example:
   # statuses:
   #   cancel:
   #     date_format: "🚫 YYYY-MM-DD"  # override the default ❌ marker
@@ -84,6 +86,8 @@ unresolved, `ignore_links` above is the other answer.
 - **statuses**: A status's `date_format` is the marker stamped when a task
   enters it. `done` stamps `✅ YYYY-MM-DD` and `cancel` stamps
   `❌ YYYY-MM-DD` unless overridden; writing `date_format: null` stops a
-  status stamping anything at all.
+  status stamping anything at all. A status is addressed by its `char`, the
+  character between the brackets of `- [ ]`, so a name that is not built in
+  must declare one and no two statuses may share it.
 - **default_file**: Where to add new tasks (daily = today's daily note, inbox = inbox file,
   or a specific path)
