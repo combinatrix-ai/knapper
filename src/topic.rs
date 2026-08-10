@@ -20,7 +20,7 @@
 
 use std::collections::BTreeSet;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use rayon::prelude::*;
 use serde_json::{json, Value};
 
@@ -345,6 +345,16 @@ pub fn context(
     format: &str,
     options: &crate::notes_cmd::ContextOptions,
 ) -> Result<()> {
+    if options.line.is_some()
+        || options.before.is_some()
+        || options.after.is_some()
+        || options.section
+        || options.outline_depth.is_some()
+    {
+        return Err(anyhow!(
+            "Focused context (--line) is available for note files, not '#tag' subjects"
+        ));
+    }
     let found = occurrences(config, selector);
     let notes = sources(&found);
 

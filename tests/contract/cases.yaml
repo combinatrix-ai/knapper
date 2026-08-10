@@ -72,6 +72,44 @@
       path: "Notes/Lit Review.md"
       title: "Lit Review"
 
+- name: obsidian / focused context defaults to three lines and a document map
+  vault: obsidian
+  args: [context, Notes/Lit Review.md, --line, "9", --format, json]
+  expect:
+    json_at:
+      kind: note
+      "document.outline_depth": 1
+      "document.current_branch_index": 0
+      "document.entries.0.index": 0
+      "document.entries.0.title": Method
+      "document.entries.0.current": true
+      "focus.line": 9
+      "focus.heading_path.0": Lit Review
+      "focus.heading_path.1": Method
+      "excerpt.start_line": 6
+      "excerpt.end_line": 11
+
+- name: obsidian / focused context can omit content but keeps metadata
+  vault: obsidian
+  args: [context, Notes/Lit Review.md, --line, "9", --no-content, --format, json]
+  expect:
+    stdout_excludes: ['"content"']
+    stdout_contains: ['"enclosing_section"', '"start_line": 6']
+
+- name: obsidian / focused context rejects an invalid physical line
+  vault: obsidian
+  args: [context, Notes/Lit Review.md, --line, "99"]
+  expect:
+    exit: 1
+    stderr_contains: ["Invalid --line 99", "between 1 and 11"]
+
+- name: obsidian / section and explicit windows are unambiguous
+  vault: obsidian
+  args: [context, Notes/Lit Review.md, --line, "9", --section, -A, "1"]
+  expect:
+    exit: 1
+    stderr_contains: ["cannot be combined"]
+
 - name: obsidian / references keep their position and are never resolved
   vault: obsidian
   args: [refs, Projects/Thesis.md, --format, json]

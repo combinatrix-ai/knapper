@@ -19,6 +19,8 @@ fn print_json(value: &Value) {
 }
 
 static HEADING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^(#{1,6})\s+(.+)$").unwrap());
+static ATX_HEADING_LINE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(#{1,6})[ \t]+(.+?)[ \t]*$").expect("valid ATX heading regex"));
 
 // [text](target) or [text](target "title"), but not an image.
 static MD_LINK_SUB: LazyLock<Regex> =
@@ -33,6 +35,14 @@ pub struct ContextOptions {
     pub no_backlinks: bool,
     pub no_tasks: bool,
     pub max_content: Option<usize>,
+    /// Physical, 1-based focused line. `None` preserves the original context
+    /// contract and output shape.
+    pub line: Option<usize>,
+    /// Explicit physical context window. Focused mode defaults both to 3.
+    pub before: Option<usize>,
+    pub after: Option<usize>,
+    pub section: bool,
+    pub outline_depth: Option<usize>,
 }
 
 pub fn context(config: &Config, file: &str, format: &str, options: &ContextOptions) -> Result<()> {
@@ -41,6 +51,14 @@ pub fn context(config: &Config, file: &str, format: &str, options: &ContextOptio
         return Err(anyhow!("File not found: {}", path.display()));
     }
     let content = std::fs::read_to_string(&path)?;
+    if options.line.is_some()
+        || options.before.is_some()
+        || options.after.is_some()
+        || options.section
+        || options.outline_depth.is_some()
+    {
+        return focused_context(config, &path, format, options, &content);
+    }
     let note = parse_note(&path, &content);
     let relative = relative_path(&config.vault_path, &path);
 
@@ -168,6 +186,527 @@ pub fn context(config: &Config, file: &str, format: &str, options: &ContextOptio
                     .join(", "))
                 .unwrap_or_default()
         );
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct FocusHeading {
+    level: usize,
+    text: String,
+    line: usize,
+    end_line: usize,
+}
+
+#[derive(Debug, Clone)]
+struct OutlineEntry {
+    heading_index: usize,
+    top_index: usize,
+    depth: usize,
+}
+
+#[derive(Debug, Clone)]
+struct FocusExcerpt {
+    start_line: usize,
+    end_line: usize,
+    truncated: bool,
+    content: String,
+}
+
+/// Split physical source lines using the same convention as `rg`, editors and
+/// the rest of knapper: a final newline terminates the preceding line; it does
+/// not invent an additional addressable empty line.
+fn physical_lines(content: &str) -> Vec<&str> {
+    content.lines().collect()
+}
+
+fn display_line(line: &str) -> &str {
+    line.strip_suffix('\r').unwrap_or(line)
+}
+
+fn markdown_headings(content: &str, total_lines: usize) -> Vec<FocusHeading> {
+    let (_, body) = split_frontmatter(content);
+    let prefix_len = content.len().saturating_sub(body.len());
+    let prefix_lines = content[..prefix_len].matches('\n').count();
+    let masked = crate::parser::mask_noncontent(body);
+    let mut headings = Vec::new();
+
+    for (index, (original, masked_line)) in body.split('\n').zip(masked.split('\n')).enumerate() {
+        let masked_line = display_line(masked_line);
+        let Some(masked_capture) = ATX_HEADING_LINE.captures(masked_line) else {
+            continue;
+        };
+        // The masked line proves this is not a heading inside a code fence or
+        // comment. Read the title from the original line so inline code and
+        // Unicode remain exactly as authored.
+        let original = display_line(original);
+        let Some(capture) = ATX_HEADING_LINE.captures(original) else {
+            continue;
+        };
+        let level = masked_capture[1].len();
+        headings.push(FocusHeading {
+            level,
+            text: capture[2].trim().to_string(),
+            line: prefix_lines + index + 1,
+            end_line: total_lines,
+        });
+    }
+
+    // A section ends immediately before the next heading at the same or a
+    // shallower level. Nested headings remain inside their parent's range.
+    for index in 0..headings.len() {
+        if let Some(next) = headings[index + 1..]
+            .iter()
+            .find(|heading| heading.level <= headings[index].level)
+        {
+            headings[index].end_line = next.line.saturating_sub(1);
+        }
+    }
+    headings
+}
+
+fn heading_parents(headings: &[FocusHeading]) -> Vec<Option<usize>> {
+    let mut parents = vec![None; headings.len()];
+    let mut stack: Vec<usize> = Vec::new();
+    for (index, heading) in headings.iter().enumerate() {
+        while stack
+            .last()
+            .is_some_and(|parent| headings[*parent].level >= heading.level)
+        {
+            stack.pop();
+        }
+        parents[index] = stack.last().copied();
+        stack.push(index);
+    }
+    parents
+}
+
+fn top_level_headings(
+    headings: &[FocusHeading],
+    parents: &[Option<usize>],
+) -> (Option<String>, Vec<usize>) {
+    let h1: Vec<usize> = headings
+        .iter()
+        .enumerate()
+        .filter_map(|(index, heading)| (heading.level == 1).then_some(index))
+        .collect();
+    let title = h1.first().map(|index| headings[*index].text.clone());
+
+    if h1.len() == 1 {
+        let title_index = h1[0];
+        let children: Vec<usize> = headings
+            .iter()
+            .enumerate()
+            .filter_map(|(index, _)| {
+                parents[index]
+                    .filter(|parent| *parent == title_index)
+                    .map(|_| index)
+            })
+            .collect();
+        if !children.is_empty() {
+            return (title, children);
+        }
+        // A lone H1 with no children is the document title, not a duplicate
+        // outline entry.
+        return (title, Vec::new());
+    }
+    if h1.len() > 1 {
+        // Multiple H1s are peer roots, so no one heading can be called the
+        // document title. Keep the roots themselves as the first layer.
+        return (None, h1);
+    }
+
+    let shallowest = headings.iter().map(|heading| heading.level).min();
+    let top = shallowest
+        .map(|level| {
+            headings
+                .iter()
+                .enumerate()
+                .filter_map(|(index, heading)| (heading.level == level).then_some(index))
+                .collect()
+        })
+        .unwrap_or_default();
+    (None, top)
+}
+
+fn top_ancestor(mut index: usize, parents: &[Option<usize>], tops: &[usize]) -> Option<usize> {
+    loop {
+        if tops.contains(&index) {
+            return Some(index);
+        }
+        index = parents[index]?;
+    }
+}
+
+fn heading_path(line: usize, headings: &[FocusHeading], parents: &[Option<usize>]) -> Vec<String> {
+    let Some(mut index) = headings
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, heading)| heading.line <= line)
+        .map(|(index, _)| index)
+    else {
+        return Vec::new();
+    };
+    // The nearest preceding heading may be a sibling that has already ended.
+    while headings[index].end_line < line {
+        let Some(parent) = parents[index] else {
+            return Vec::new();
+        };
+        index = parent;
+    }
+    let mut path = Vec::new();
+    loop {
+        path.push(headings[index].text.clone());
+        let Some(parent) = parents[index] else {
+            break;
+        };
+        index = parent;
+    }
+    path.reverse();
+    path
+}
+
+fn section_for_line(line: usize, headings: &[FocusHeading]) -> Option<(usize, usize)> {
+    headings
+        .iter()
+        .filter(|heading| heading.line <= line && line <= heading.end_line)
+        .max_by_key(|heading| (heading.level, heading.line))
+        .map(|heading| (heading.line, heading.end_line))
+}
+
+fn outline_entries(
+    headings: &[FocusHeading],
+    parents: &[Option<usize>],
+    tops: &[usize],
+    depth_limit: usize,
+) -> Vec<OutlineEntry> {
+    if depth_limit == 0 {
+        return Vec::new();
+    }
+    headings
+        .iter()
+        .enumerate()
+        .filter_map(|(index, _)| {
+            let top = top_ancestor(index, parents, tops)?;
+            let mut depth = 1;
+            let mut cursor = index;
+            while cursor != top {
+                cursor = parents[cursor]?;
+                depth += 1;
+            }
+            (depth <= depth_limit).then_some(OutlineEntry {
+                heading_index: index,
+                top_index: top,
+                depth,
+            })
+        })
+        .collect()
+}
+
+fn selected_outline_indices(total: usize, current: Option<usize>) -> Vec<usize> {
+    if total <= 12 {
+        return (0..total).collect();
+    }
+    let mut selected = std::collections::BTreeSet::new();
+    selected.extend(0..3.min(total));
+    selected.extend(total.saturating_sub(3)..total);
+    if let Some(current) = current {
+        selected.extend(current.saturating_sub(2)..=(current + 2).min(total - 1));
+    }
+    selected.into_iter().collect()
+}
+
+fn focused_excerpt(
+    lines: &[&str],
+    start_line: usize,
+    end_line: usize,
+    focus_line: usize,
+    max_content: Option<usize>,
+) -> FocusExcerpt {
+    let start = start_line.max(1).min(lines.len());
+    let end = end_line.max(start).min(lines.len());
+    let raw: Vec<&str> = lines[start - 1..end]
+        .iter()
+        .map(|line| display_line(line))
+        .collect();
+    let full = raw.join("\n");
+    let Some(limit) = max_content.filter(|_| full.chars().count() > max_content.unwrap_or(0))
+    else {
+        return FocusExcerpt {
+            start_line: start,
+            end_line: end,
+            truncated: false,
+            content: full,
+        };
+    };
+    let focus_index = focus_line
+        .saturating_sub(start)
+        .min(raw.len().saturating_sub(1));
+    let focus_text = raw.get(focus_index).copied().unwrap_or_default();
+    if focus_text.chars().count() >= limit {
+        return FocusExcerpt {
+            start_line: focus_line,
+            end_line: focus_line,
+            truncated: true,
+            content: focus_text.chars().take(limit).collect::<String>(),
+        };
+    }
+
+    // Grow outwards from the focused line, preserving the focus even when a
+    // very small character budget cannot fit the complete requested window.
+    // Alternate sides so a long line on one side cannot starve the other.
+    let mut chosen_start = focus_index;
+    let mut chosen_end = focus_index + 1;
+    let mut used = focus_text.chars().count();
+    let mut prefer_before = true;
+    loop {
+        let before = chosen_start.checked_sub(1);
+        let after = (chosen_end < raw.len()).then_some(chosen_end);
+        let candidates = if prefer_before {
+            [before, after]
+        } else {
+            [after, before]
+        };
+        let mut added = false;
+        for index in candidates.into_iter().flatten() {
+            let cost = raw[index].chars().count() + 1; // the joining newline
+            if used + cost > limit {
+                continue;
+            }
+            used += cost;
+            if index < chosen_start {
+                chosen_start = index;
+                prefer_before = false;
+            } else {
+                chosen_end = index + 1;
+                prefer_before = true;
+            }
+            added = true;
+            break;
+        }
+        if !added {
+            break;
+        }
+    }
+    FocusExcerpt {
+        start_line: start + chosen_start,
+        end_line: start + chosen_end - 1,
+        truncated: true,
+        content: raw[chosen_start..chosen_end].join("\n"),
+    }
+}
+
+fn focused_context(
+    config: &Config,
+    path: &Path,
+    format: &str,
+    options: &ContextOptions,
+    content: &str,
+) -> Result<()> {
+    if path.extension().and_then(|extension| extension.to_str()) == Some("org") {
+        return Err(anyhow!(
+            "Focused context (--line) currently supports Markdown notes only; org-mode notes do not have a Markdown outline"
+        ));
+    }
+    if options.line.is_none() {
+        return Err(anyhow!(
+            "--before, --after, --section and --outline-depth require --line N"
+        ));
+    }
+    if options.section && (options.before.is_some() || options.after.is_some()) {
+        return Err(anyhow!(
+            "--section cannot be combined with explicit --before or --after"
+        ));
+    }
+
+    let lines = physical_lines(content);
+    let line = options.line.unwrap();
+    if line == 0 || line > lines.len() {
+        return Err(anyhow!(
+            "Invalid --line {line}: expected a physical line between 1 and {}",
+            lines.len()
+        ));
+    }
+    let headings = markdown_headings(content, lines.len());
+    let parents = heading_parents(&headings);
+    let (document_title, tops) = top_level_headings(&headings, &parents);
+    let depth_limit = options.outline_depth.unwrap_or(1);
+    let entries = outline_entries(&headings, &parents, &tops, depth_limit);
+    let current_top = tops
+        .iter()
+        .enumerate()
+        .find(|(_, index)| headings[**index].line <= line && line <= headings[**index].end_line)
+        .map(|(index, _)| index);
+    let current_outline = current_top.and_then(|top| {
+        entries
+            .iter()
+            .position(|entry| entry.top_index == tops[top] && entry.depth == 1)
+    });
+    let selected = selected_outline_indices(entries.len(), current_outline);
+
+    let section = section_for_line(line, &headings);
+    let (excerpt_start, excerpt_end) = if options.section {
+        section.unwrap_or((line, line))
+    } else {
+        (
+            line.saturating_sub(options.before.unwrap_or(3)).max(1),
+            line.saturating_add(options.after.unwrap_or(3))
+                .min(lines.len()),
+        )
+    };
+    let excerpt = focused_excerpt(
+        &lines,
+        excerpt_start,
+        excerpt_end,
+        line,
+        options.max_content.filter(|_| !options.no_content),
+    );
+    let breadcrumb = heading_path(line, &headings, &parents);
+    let relative = relative_path(&config.vault_path, path);
+
+    if format == "json" {
+        let outline_entries: Vec<Value> = selected
+            .iter()
+            .map(|selected_index| {
+                let entry = &entries[*selected_index];
+                let heading = &headings[entry.heading_index];
+                json!({
+                    "index": selected_index,
+                    "title": heading.text,
+                    "level": heading.level,
+                    "depth": entry.depth,
+                    "start_line": heading.line,
+                    "end_line": heading.end_line,
+                    "current": entry.depth == 1 && current_outline == Some(*selected_index),
+                })
+            })
+            .collect();
+        let omitted = entries.len().saturating_sub(selected.len());
+        let mut focus = serde_json::Map::new();
+        focus.insert("line".into(), json!(line));
+        focus.insert("heading_path".into(), json!(breadcrumb));
+        focus.insert(
+            "enclosing_section".into(),
+            section.map_or(
+                Value::Null,
+                |(start, end)| json!({"start_line": start, "end_line": end}),
+            ),
+        );
+
+        let mut excerpt_json = serde_json::Map::new();
+        excerpt_json.insert("start_line".into(), json!(excerpt.start_line));
+        excerpt_json.insert("end_line".into(), json!(excerpt.end_line));
+        excerpt_json.insert("truncated".into(), json!(excerpt.truncated));
+        if !options.no_content {
+            excerpt_json.insert("content".into(), json!(excerpt.content));
+        }
+
+        let mut out = serde_json::Map::new();
+        out.insert("kind".into(), json!("note"));
+        out.insert("path".into(), json!(relative));
+        out.insert(
+            "document".into(),
+            json!({
+                "title": document_title,
+                "outline_depth": depth_limit,
+                "entries": outline_entries,
+                "total": entries.len(),
+                "omitted": omitted,
+                "truncated": omitted > 0,
+                "current_branch_index": current_outline,
+            }),
+        );
+        out.insert("focus".into(), Value::Object(focus));
+        out.insert("excerpt".into(), Value::Object(excerpt_json));
+        out.insert(
+            "stats".into(),
+            json!({
+                "chars": content.chars().count(),
+                "words": content.split_whitespace().count(),
+                "lines": lines.len(),
+            }),
+        );
+        print_json(&Value::Object(out));
+        return Ok(());
+    }
+
+    println!("# {relative}\n");
+    println!("Document");
+    if let Some(title) = document_title {
+        println!("  {title}");
+    }
+    if depth_limit == 0 {
+        println!("  (outline hidden; use --outline-depth N)");
+    } else if entries.is_empty() {
+        println!("  (no headings)");
+    } else {
+        let mut previous = None;
+        for selected_index in &selected {
+            if let Some(previous) = previous {
+                if *selected_index > previous + 1 {
+                    println!("  … {} entries omitted", selected_index - previous - 1);
+                }
+            }
+            let entry = &entries[*selected_index];
+            let heading = &headings[entry.heading_index];
+            let marker = if current_top
+                .and_then(|top| tops.get(top).copied())
+                .is_some_and(|top| top == entry.top_index && entry.depth == 1)
+            {
+                "▸"
+            } else {
+                " "
+            };
+            println!(
+                "  {marker} {}{}  lines {}–{}",
+                "  ".repeat(entry.depth.saturating_sub(1)),
+                heading.text,
+                heading.line,
+                heading.end_line
+            );
+            previous = Some(*selected_index);
+        }
+        let omitted = entries.len().saturating_sub(selected.len());
+        if omitted > 0 {
+            println!("  {} entries total; {} omitted", entries.len(), omitted);
+        }
+    }
+    println!();
+    println!("Focus");
+    println!(
+        "  {}",
+        if breadcrumb.is_empty() {
+            "(document)".to_string()
+        } else {
+            breadcrumb.join(" › ")
+        }
+    );
+    if let Some((start, end)) = section {
+        println!("  line: {line} · section lines {start}–{end}");
+    } else {
+        println!("  line: {line} · section: none");
+    }
+    println!();
+    println!("Excerpt");
+    if options.no_content {
+        println!("  (content omitted)");
+    } else {
+        let width = excerpt.end_line.to_string().len();
+        let excerpt_lines = physical_lines(&excerpt.content);
+        for (offset, excerpt_line) in excerpt_lines.iter().enumerate() {
+            let number = excerpt.start_line + offset;
+            let marker = if number == line { ">" } else { " " };
+            println!(
+                "{marker} {:>width$} │ {}",
+                number,
+                excerpt_line,
+                width = width
+            );
+        }
+        if excerpt.truncated {
+            println!("  … (truncated)");
+        }
     }
     Ok(())
 }
@@ -831,4 +1370,109 @@ pub fn frontmatter_delete(config: &Config, file: &str, key: &str) -> Result<()> 
     }
     println!("Deleted {key}");
     Ok(())
+}
+
+#[cfg(test)]
+mod focused_tests {
+    use super::*;
+
+    fn headings(source: &str) -> (Vec<FocusHeading>, Vec<Option<usize>>, Vec<usize>) {
+        let lines = physical_lines(source);
+        let found = markdown_headings(source, lines.len());
+        let parents = heading_parents(&found);
+        let (_, tops) = top_level_headings(&found, &parents);
+        (found, parents, tops)
+    }
+
+    #[test]
+    fn h1_children_are_the_first_outline_layer_and_breadcrumb_is_full() {
+        let source = "# Root\n\n## One\n\n### Nested\nbody\n## Two\n";
+        let (found, parents, tops) = headings(source);
+        assert_eq!(tops, [1, 3]);
+        assert_eq!(heading_path(6, &found, &parents), ["Root", "One", "Nested"]);
+        let entries = outline_entries(&found, &parents, &tops, 2);
+        assert_eq!(
+            entries.iter().map(|entry| entry.depth).collect::<Vec<_>>(),
+            [1, 2, 1]
+        );
+    }
+
+    #[test]
+    fn a_single_h1_without_children_is_only_the_document_title() {
+        let source = "# Root\nbody\n";
+        let (found, parents, tops) = headings(source);
+        let (title, top) = top_level_headings(&found, &parents);
+        assert_eq!(title.as_deref(), Some("Root"));
+        assert!(top.is_empty());
+        assert!(outline_entries(&found, &parents, &tops, 1).is_empty());
+    }
+
+    #[test]
+    fn multiple_h1_headings_are_peer_first_layer_roots_without_a_title() {
+        let source = "# One\nbody\n# Two\nbody\n";
+        let (found, parents, tops) = headings(source);
+        let (title, top) = top_level_headings(&found, &parents);
+        assert!(title.is_none());
+        assert_eq!(top, [0, 1]);
+        assert_eq!(outline_entries(&found, &parents, &tops, 1).len(), 2);
+    }
+
+    #[test]
+    fn h1_less_documents_use_the_shallowest_heading_level() {
+        let source = "## One\n### nested\n## Two\n";
+        let (found, parents, tops) = headings(source);
+        assert_eq!(tops, [0, 2]);
+        assert_eq!(top_level_headings(&found, &parents).0, None);
+    }
+
+    #[test]
+    fn no_headings_and_repeated_headings_are_stable() {
+        let (found, parents, tops) = headings("plain\ntext\n");
+        assert!(found.is_empty());
+        assert!(tops.is_empty());
+        assert!(heading_path(1, &found, &parents).is_empty());
+
+        let source = "# Same\nfirst\n# Same\nsecond\n";
+        let (found, _parents, tops) = headings(source);
+        assert_eq!(tops, [0, 1]);
+        assert_eq!(found[0].text, found[1].text);
+        assert_eq!(section_for_line(4, &found), Some((3, 4)));
+    }
+
+    #[test]
+    fn outline_compaction_keeps_first_current_neighbours_and_last() {
+        let source = (1..=15)
+            .map(|index| format!("## Section {index}\nbody"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (found, parents, tops) = headings(&source);
+        let entries = outline_entries(&found, &parents, &tops, 1);
+        let selected = selected_outline_indices(entries.len(), Some(7));
+        assert!(selected.len() <= 12);
+        assert_eq!(&selected[..3], [0, 1, 2]);
+        assert!(selected.contains(&5) && selected.contains(&9));
+        assert_eq!(selected.last(), Some(&14));
+        assert_eq!(entries.len() - selected.len(), 4);
+    }
+
+    #[test]
+    fn focused_excerpt_defaults_and_explicit_limits_are_line_based() {
+        let source = "a\nb\nc\nd\ne\nf\ng\n";
+        let lines = physical_lines(source);
+        let default = focused_excerpt(&lines, 2, 6, 4, None);
+        assert_eq!((default.start_line, default.end_line), (2, 6));
+        let tiny = focused_excerpt(&lines, 1, 7, 4, Some(1));
+        assert_eq!(tiny.start_line, 4);
+        assert_eq!(tiny.content, "d");
+        assert!(tiny.truncated);
+    }
+
+    #[test]
+    fn max_content_can_grow_after_focus_when_the_previous_line_does_not_fit() {
+        let lines = physical_lines("long-before\nx\ny\n");
+        let excerpt = focused_excerpt(&lines, 1, 3, 2, Some(3));
+        assert_eq!((excerpt.start_line, excerpt.end_line), (2, 3));
+        assert_eq!(excerpt.content, "x\ny");
+        assert!(excerpt.truncated);
+    }
 }

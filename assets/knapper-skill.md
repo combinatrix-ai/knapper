@@ -85,10 +85,24 @@ Trim it when the whole note is not needed:
 ```bash
 knapper context FILE --no-content --no-backlinks   # structure only
 knapper context FILE --max-content 2000            # truncated, marked as such
+knapper context FILE --line 120                   # focused context, default -B 3 -A 3
+knapper context FILE --line 120 --section         # smallest enclosing Markdown section
+knapper context FILE --line 120 --outline-depth 2 # include nested outline entries
 ```
 
 `--no-backlinks` skips building the link graph, which is the expensive part on
 a large vault.
+
+Focused `context --line N` addresses a physical 1-based line and returns a
+line-numbered excerpt, the complete heading breadcrumb, and a first-layer
+document map. `-B/--before` and `-A/--after` override the default three-line
+window. `--section` replaces the window with the smallest enclosing Markdown
+section and cannot be combined with explicit `-A` or `-B`; `--outline-depth 0`
+hides the map. H1 children form the first layer when an H1 title exists,
+otherwise the shallowest heading level does. Maps are compacted above twelve
+entries and report their omission counts. `--no-content` keeps focus metadata
+but omits the excerpt text, while `--max-content` truncates around the focused
+line. Focused mode rejects org-mode notes until an org outline contract exists.
 
 ## Links
 

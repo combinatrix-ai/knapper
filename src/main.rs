@@ -274,6 +274,37 @@ enum Command {
         no_tasks: bool,
         #[arg(long = "max-content", help = "Truncate content to N characters")]
         max_content: Option<usize>,
+        #[arg(
+            long = "line",
+            value_name = "N",
+            help = "Focus on physical 1-based line N"
+        )]
+        line: Option<usize>,
+        #[arg(
+            short = 'B',
+            long = "before",
+            value_name = "N",
+            help = "Lines before the focused line (default: 3)"
+        )]
+        before: Option<usize>,
+        #[arg(
+            short = 'A',
+            long = "after",
+            value_name = "N",
+            help = "Lines after the focused line (default: 3)"
+        )]
+        after: Option<usize>,
+        #[arg(
+            long = "section",
+            help = "Show the smallest enclosing Markdown section"
+        )]
+        section: bool,
+        #[arg(
+            long = "outline-depth",
+            value_name = "N",
+            help = "Focused document map depth (default: 1; 0 hides it)"
+        )]
+        outline_depth: Option<usize>,
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
@@ -553,6 +584,11 @@ fn run() -> Result<()> {
             no_backlinks,
             no_tasks,
             max_content,
+            line,
+            before,
+            after,
+            section,
+            outline_depth,
             format,
         } => {
             let options = notes_cmd::ContextOptions {
@@ -560,6 +596,11 @@ fn run() -> Result<()> {
                 no_backlinks,
                 no_tasks,
                 max_content,
+                line,
+                before,
+                after,
+                section,
+                outline_depth,
             };
             match topic::Selector::parse(&file)? {
                 topic::Selector::Tag(tag) => topic::context(&config, &tag, &format, &options),

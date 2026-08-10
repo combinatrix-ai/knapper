@@ -648,6 +648,55 @@ knapper context "Notes/Lit Review.md"
 }
 ```
 
+To restore only the neighbourhood of a search hit, pass its physical
+1-based line. Focused context defaults to three lines before and after the
+hit, and includes a compact first-layer document map plus the complete heading
+breadcrumb:
+
+```bash
+knapper context "Notes/Lit Review.md" --line 9
+knapper context "Notes/Lit Review.md" --line 9 -B 1 -A 8 --format json
+knapper context "Notes/Lit Review.md" --line 9 --section
+```
+
+`--section` selects the smallest enclosing Markdown section and cannot be
+combined with explicit `-A/--after` or `-B/--before`. `--outline-depth N`
+controls the map (`1` by default; `0` hides it). The map shows at most twelve
+entries; larger outlines keep the first, current-neighbour and last entries
+and report `total`, `omitted` and `truncated`. An H1 is the document title and
+its direct children are the first layer; a single H1 without children is only
+the title. When there are multiple H1s they are peer first-layer roots with no
+document title; without an H1, the shallowest heading level is the first layer.
+Focused mode is Markdown-only for now and rejects org-mode
+notes rather than presenting a misleading outline.
+
+Focused JSON is deterministic and has this shape:
+
+```json
+{
+  "kind": "note",
+  "path": "Notes/Lit Review.md",
+  "document": {
+    "title": "Lit Review",
+    "outline_depth": 1,
+    "entries": [{"index": 0, "title": "Method", "depth": 1, "start_line": 9, "end_line": 11, "current": true}],
+    "total": 1, "omitted": 0, "truncated": false, "current_branch_index": 0
+  },
+  "focus": {
+    "line": 9,
+    "heading_path": ["Lit Review", "Method"],
+    "enclosing_section": {"start_line": 9, "end_line": 11}
+  },
+  "excerpt": {"start_line": 6, "end_line": 11, "truncated": false, "content": "..."}
+}
+```
+
+`--no-content` retains all focus, section and outline metadata while omitting
+`excerpt.content`. `--max-content` truncates around the focused line in this
+mode, rather than returning the beginning of the file; `excerpt.content` stays
+source-only and `truncated: true` causes text output to print an unnumbered
+truncation marker.
+
 ### The skill ships inside the binary
 
 An agent host does not need this repository to learn how to drive knapper:
@@ -817,7 +866,7 @@ timed out, or returned nothing usable.
 | `knapper rename OLD NEW` | Rename a note and update all links |
 | `knapper move SRC DEST` | Move a note or a directory and update all links |
 | `knapper demote TARGET` | Rewrite the exact `[[TARGET]]` into `#TARGET` |
-| `knapper context FILE` | Aggregated context for one file or `'#tag'`, for LLMs |
+| `knapper context FILE` | Aggregated context; add `--line N` for focused Markdown context |
 | `knapper tasks` | Find and filter `- [ ]` tasks |
 | `knapper tasks new / done / wip / cancel / set` | Create a task or change its status |
 | `knapper daily [DATE]` | Create or get a daily note |
