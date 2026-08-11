@@ -123,6 +123,12 @@ fn mask_with(text: &str, re: &Regex) -> String {
 /// same marker that opened it, and the regex crate has no backreferences.
 /// Approximating that with an alternation lets a ``` block be closed by a ~~~
 /// line, which leaks whatever follows into the link graph.
+///
+/// Only a *closed* block is masked. CommonMark runs an unclosed fence to the
+/// end of the document, which is right for rendering, but knapper reports what
+/// is in a vault: one stray ``` should not silently delete every link, tag and
+/// heading written after it. An opening fence with no closing one is read as
+/// ordinary content.
 fn mask_fenced_code(text: &str) -> String {
     // A fence must start at column zero. An indented ``` inside a list is
     // part of the list item's content, and treating it as a fence swallows
@@ -138,31 +144,43 @@ fn mask_fenced_code(text: &str) -> String {
         None
     }
 
-    let mut out = String::with_capacity(text.len());
-    let mut open: Option<String> = None;
+    // Which lines to blank is decided before any are written, because an
+    // opening fence is only known to be a fence once its close is found.
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut masked = vec![false; lines.len()];
+    let mut open: Option<(usize, &str)> = None;
 
-    for (index, line) in text.split('\n').enumerate() {
-        if index > 0 {
-            out.push('\n');
-        }
-        match &open {
-            None => match fence_marker(line) {
-                Some(marker) => {
-                    open = Some(marker.to_string());
-                    out.push_str(&blank_out(line));
+    for (index, line) in lines.iter().enumerate() {
+        match open {
+            None => {
+                if let Some(marker) = fence_marker(line) {
+                    open = Some((index, marker));
                 }
-                None => out.push_str(line),
-            },
-            Some(marker) => {
+            }
+            Some((start, marker)) => {
                 // A closing fence is the same character, at least as long.
                 let closes = fence_marker(line)
                     .map(|m| m.starts_with(&marker[..1]) && m.len() >= marker.len())
                     .unwrap_or(false);
-                out.push_str(&blank_out(line));
                 if closes {
+                    for flag in masked[start..=index].iter_mut() {
+                        *flag = true;
+                    }
                     open = None;
                 }
             }
+        }
+    }
+
+    let mut out = String::with_capacity(text.len());
+    for (index, line) in lines.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        if masked[index] {
+            out.push_str(&blank_out(line));
+        } else {
+            out.push_str(line);
         }
     }
     out
@@ -477,10 +495,44 @@ mod tests {
         );
     }
 
+    /// A note with one stray ``` in it is a typo, not a note whose second half
+    /// has been retracted; its links, tags and headings are still there.
     #[test]
-    fn an_unterminated_fence_masks_to_the_end() {
+    fn an_unterminated_fence_is_not_a_fence() {
+        let content = "```\nan example that forgot its close\n\n## Later\n[[Real]]\n#realtag\n";
+        let masked = mask_noncontent(content);
+        assert_eq!(extract_links(&masked), ["Real"]);
+        assert_eq!(extract_tags(&masked), ["realtag"]);
+        assert!(masked.contains("## Later"));
+    }
+
+    /// The other half of the same rule: a fence that is closed still masks.
+    #[test]
+    fn a_closed_fence_still_masks_its_content() {
         assert_eq!(
-            extract_links(&mask_noncontent("text [[Real]]\n```\n[[Hidden]]\n")),
+            extract_links(&mask_noncontent("```\n[[Hidden]]\n```\n[[Real]]\n")),
+            ["Real"]
+        );
+    }
+
+    /// A ``` that is not at column zero belongs to the list item, so it opens
+    /// nothing -- and now that an unclosed fence is content, the closing fence
+    /// of a *later* real block must not be paired with it either.
+    #[test]
+    fn an_indented_fence_does_not_open_a_block() {
+        let content = "- item\n  ```\n  [[Real]]\n  ```\n[[AlsoReal]]\n";
+        assert_eq!(
+            extract_links(&mask_noncontent(content)),
+            ["Real", "AlsoReal"]
+        );
+    }
+
+    /// A block opened by ``` may be closed by a longer run of the same
+    /// character, and that still counts as closed.
+    #[test]
+    fn a_longer_closing_marker_still_closes() {
+        assert_eq!(
+            extract_links(&mask_noncontent("```\n[[Hidden]]\n`````\n[[Real]]\n")),
             ["Real"]
         );
     }
