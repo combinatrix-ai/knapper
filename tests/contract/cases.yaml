@@ -562,6 +562,52 @@
   expect:
     stdout_contains: ["Daily/"]
 
+# ------------------------------------------------------- A stray fence --
+# The `unclosed` fixture holds a note whose example forgot its closing ```.
+# CommonMark runs such a fence to the end of the document, which is right for
+# rendering and wrong here: knapper reports what is in a vault, and a typo in
+# one line must not retract every link, tag and heading written under it. Only
+# a closed block is masked.
+
+- name: unclosed / a link written after a stray fence is still a link
+  vault: unclosed
+  args: [links, Typo.md, --format, json]
+  expect:
+    json_at:
+      0.target: "A Real Link"
+
+- name: unclosed / a tag written after a stray fence is still a tag
+  vault: unclosed
+  args: [tags, Typo.md, --format, json]
+  expect:
+    json: ["realtag"]
+
+- name: unclosed / a heading written after a stray fence is still a heading
+  vault: unclosed
+  args: [context, Typo.md, --line, "10"]
+  expect:
+    stdout_contains: ["Still Prose"]
+
+- name: unclosed / a closed fence still masks what is inside it
+  vault: unclosed
+  args: [links, Closed.md, --format, json]
+  # Closed.md's own [[A Real Link]] sits in a closed fence and is not a link.
+  # The [[Missing Note]] under it is indented inside a list item, where a ```
+  # opens nothing, so it stays the ordinary broken link it looks like.
+  expect:
+    json_at:
+      0.target: "Missing Note"
+    json_length: 1
+
+- name: unclosed / the note linked after a stray fence is not an orphan
+  vault: unclosed
+  args: [orphans, --format, json]
+  # "A Real Link.md" is absent: masking away Typo.md's second half used to
+  # take its only inbound link with it and leave it looking unreferenced.
+  expect:
+    json: ["Closed.md", "Typo.md"]
+    sorted: true
+
 # ------------------------------------------------------- Before a config --
 # The `bare` fixture has no knapper.config.md, which is what every vault looks
 # like the moment before `knapper init`. Every other fixture ships a config,
