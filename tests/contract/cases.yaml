@@ -938,6 +938,35 @@
   expect:
     json: []
 
+# A name holding parentheses is the same defect from the other direction:
+# CommonMark allows them in a bare destination as long as they balance, and
+# reading up to the first `)` cut `Note%20(draft).md` down to `Note%20(draft`.
+# One wrong target invented a broken link, lost the note its only inbound one,
+# and made a rename walk past the link it should have followed.
+
+- name: encoded / a parenthesised name is read whole
+  vault: encoded
+  args: [links, paren-only.md, --format, json]
+  # The wikipedia URL alongside it balances its parentheses too, and is still
+  # an external link rather than a note.
+  expect:
+    json: [{target: "Note (draft)", line: 3}]
+
+- name: encoded / a parenthesised name is not an orphan
+  vault: encoded
+  args: [orphans, --format, json]
+  expect:
+    json_excludes: ["Note (draft).md"]
+
+- name: encoded / a rename follows a parenthesised link
+  vault: encoded
+  args: [rename, "Note (draft)", "Note final"]
+  expect:
+    file:
+      "paren-only.md":
+        contains: ["[see](Note%20final.md)"]
+        excludes: ["Note%20(draft)"]
+
 - name: encoded / a dry run names the files it would rewrite
   vault: encoded
   args: [rename, "Old Note", "New Note", --dry-run]

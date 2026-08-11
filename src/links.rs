@@ -25,10 +25,28 @@ static WIKI: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(!)?\[\[([^\[\]|#^]+)((?:#|\^)[^\[\]|]*)?(\|[^\[\]]*)?\]\]").unwrap()
 });
 
+/// What a bare markdown destination may contain, shared by every pattern in
+/// knapper that reads one.
+///
+/// Three files used to spell this out separately, and every one of them was
+/// wrong in a different way: one stopped at whitespace and lost `<With
+/// Space.md>`, one stopped at the first `)` and read `Note%20(draft).md` as
+/// `Note%20(draft`. CommonMark allows parentheses in an unbracketed
+/// destination as long as they balance, and Obsidian writes them, so the
+/// nesting is matched here rather than re-derived per file.
+///
+/// Two levels deep, which covers `Note (draft).md` and `Paper (Smith
+/// (2020)).md`. A regex cannot balance to arbitrary depth; deeper than that,
+/// the pattern stops matching and the link goes unseen rather than being read
+/// wrong -- write such a path as `<...>`, which has no depth limit.
+pub(crate) const DESTINATION: &str = r"(?:[^()\s]|\((?:[^()\s]|\([^()\s]*\))*\))+";
+
 // [label](target "title"), optionally embedded, target optionally in <>.
 static MD: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(!)?\[([^\[\]]*)\]\(\s*(?:<([^>]*)>|([^)\s]+))((?:[ \t]+"[^"]*")?)[ \t]*\)"#)
-        .unwrap()
+    Regex::new(&format!(
+        r#"(!)?\[([^\[\]]*)\]\(\s*(?:<([^>]*)>|({DESTINATION}))((?:[ \t]+"[^"]*")?)[ \t]*\)"#
+    ))
+    .unwrap()
 });
 
 static EXTERNAL_SCHEME: LazyLock<Regex> =

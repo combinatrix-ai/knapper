@@ -17,12 +17,20 @@ static WIKILINK: LazyLock<Regex> =
 
 // [text](target). Images are excluded by checking the preceding byte, since
 // the regex crate has no lookbehind.
+//
 // A target wrapped in <> may hold spaces, so it cannot be read with the same
 // pattern as a bare one: `<With Space.md>` matched up to the space and left
 // the graph pointing at `With`, which lost the note an inbound link and
-// invented a broken one.
-static MARKDOWN_LINK: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\[[^\]]*\]\(\s*(?:<([^>]*)>|([^)>\s]+))[^)]*\)").unwrap());
+// invented a broken one. What a bare target may contain comes from
+// `links::DESTINATION`, so the graph and the rewriters cannot disagree about
+// it again.
+static MARKDOWN_LINK: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        r#"\[[^\]]*\]\(\s*(?:<([^>]*)>|({}))((?:[ \t]+"[^"]*")?)[ \t]*\)"#,
+        crate::links::DESTINATION
+    ))
+    .unwrap()
+});
 
 // Unicode-aware so CJK tags are found; nested tags keep their full path.
 static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|\s)#([\w/-]+)").unwrap());

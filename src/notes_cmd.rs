@@ -26,7 +26,11 @@ static ATX_HEADING_LINE: LazyLock<Regex> =
 // how a path holding spaces is written without encoding them. Groups: text,
 // angle-wrapped target, bare target, title.
 static MD_LINK_SUB: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\[([^\]]*)\]\(\s*(?:<([^>]*)>|([^)\s]+))((?:\s+"[^"]*")?)\s*\)"#).unwrap()
+    Regex::new(&format!(
+        r#"\[([^\]]*)\]\(\s*(?:<([^>]*)>|({}))((?:[ \t]+"[^"]*")?)[ \t]*\)"#,
+        crate::links::DESTINATION
+    ))
+    .unwrap()
 });
 
 /// What `context` should leave out. Building the link graph to find
