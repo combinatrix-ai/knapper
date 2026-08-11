@@ -744,10 +744,9 @@ knapper tasks --prose-only                  # skip checkboxes in fenced examples
 
 Every checkbox counts by default, including one written inside a code fence or
 a `%%comment%%` — the one place knapper does not mask non-prose, and
-deliberately: masking can only ever *hide* a task, and an unclosed fence blanks
-the rest of a file. A visible example costs less than a missing entry on a list
-you act on. `--prose-only` is the opt-out for a vault that documents its own
-conventions.
+deliberately: masking can only ever *hide* a task, and a visible example costs
+less than a missing entry on a list you act on. `--prose-only` is the opt-out
+for a vault that documents its own conventions.
 
 Statuses are configurable: `open` `[ ]`, `wip` `[/]`, `done` `[x]`, and
 `cancel` `[-]` are built in, and `knapper.config.md` can override their

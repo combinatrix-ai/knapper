@@ -333,9 +333,8 @@ priority) is read and written but never required.
 
 Unlike links and tags, a checkbox is *not* masked out of a code fence or a
 `%%comment%%` by default: a `- [ ]` inside a fenced example counts. That is
-deliberate -- masking can only ever *hide* a task, and an unclosed fence blanks
-the rest of a file -- so the default errs toward showing you too much rather
-than silently dropping something you meant to do.
+deliberate -- masking can only ever *hide* a task -- so the default errs toward
+showing you too much rather than silently dropping something you meant to do.
 
 `--prose-only` opts out, for a vault that documents its own conventions:
 

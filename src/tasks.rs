@@ -394,10 +394,9 @@ pub struct Filters<'a> {
     /// example, a `%%comment%%`, an inline-code span, an outliner macro.
     ///
     /// Off by default, unlike every other scanner, and deliberately. Masking
-    /// can only ever hide a task -- an unclosed fence blanks the rest of a
-    /// file -- and a task list is acted on daily, where a missing entry costs
-    /// more than a visible example does. Vaults that document their own
-    /// conventions ask for this; most do not need it.
+    /// can only ever hide a task, and a task list is acted on daily, where a
+    /// missing entry costs more than a visible example does. Vaults that
+    /// document their own conventions ask for this; most do not need it.
     pub prose_only: bool,
 }
 
