@@ -30,7 +30,7 @@ command on the right is the answer you actually wanted.
 | `rg -o '\[\[' -g '*.md'` | `knapper links FILE`, `knapper backlinks FILE` | `![[embeds]]`, `[[X\|alias]]`, `[[X#heading]]` and `[text](x.md)` are links too; the ones inside code fences and `%%comments%%` are not. Backlinks are not greppable at all without resolving basenames and aliases first |
 | `rg -l '^status:' -g '*.md'` | `knapper query --where status=open` | a body line may start the same way; the value may be quoted, a list, or a Dataview `status:: open`; and `query` filters and sorts on `inlinks`/`outlinks`/`broken` in the same breath |
 | `rg -l '#project' -g '*.md'` | `knapper backlinks '#project'` | `#project/sub` nests, a `#` in a URL or a heading is not a tag, and a tag in code is not a tag |
-| `rg -l 'Old Name' \| xargs sed -i ''` | `knapper rename 'Old Name' 'New Name'`, `knapper move FILE DIR/` | `sed` rewrites text but never the file itself, misses whichever link syntax you did not think of, and mangles `[[X\|alias]]` and `[[X#heading]]`. Both commands take `--dry-run`, so the rewrite is reviewable before it happens |
+| `rg -l 'Old Name' \| xargs sed -i ''` | `knapper rename 'Old Name' 'New Name'`, `knapper move FILE DIR/` | `sed` rewrites text but never the file itself, misses whichever link syntax you did not think of, mangles `[[X\|alias]]` and `[[X#heading]]`, and does not know that a markdown link to a name with a space in it is written `Old%20Name.md` or `<Old Name.md>` -- both of which keep their shape here. Both commands take `--dry-run` |
 | `rg '\]\(.*\.md\)' -g '*.md'` | `knapper broken-links` | whether a target resolves depends on basenames, aliases, relative paths and `ignore_links` -- a regex can find link syntax but never tell you which links are broken |
 | `rg '^\s*- \[ \]' -g '*.md'` | `knapper tasks --overdue`, `--due-to`, `--tag`, `--status` | the regex has no notion of a status character (`- [/]`, `- [-]`, custom ones), a due date, a tag, or an excluded subtree |
 
@@ -211,8 +211,9 @@ label into a promise. Create the note and use `rename`.
 ## Renaming without breaking links
 
 The reason to reach for knapper at all. Every inbound link is rewritten, in
-both syntaxes, preserving link text, folder prefixes, `#anchors` and
-percent-encoding; external URLs and image embeds are left alone.
+both syntaxes, preserving link text, folder prefixes, `#anchors`, and the way
+the target was written -- `Old%20Name.md` stays encoded and `<Old Name.md>`
+stays angle-wrapped. External URLs and image embeds are left alone.
 
 ```bash
 knapper rename "Thesis" "Dissertation"
