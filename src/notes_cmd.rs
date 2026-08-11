@@ -22,9 +22,12 @@ static HEADING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^(#{1,6})\s+
 static ATX_HEADING_LINE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(#{1,6})[ \t]+(.+?)[ \t]*$").expect("valid ATX heading regex"));
 
-// [text](target) or [text](target "title"), but not an image.
-static MD_LINK_SUB: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\[([^\]]*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)"#).unwrap());
+// [text](target "title"), with the target optionally wrapped in <>, which is
+// how a path holding spaces is written without encoding them. Groups: text,
+// angle-wrapped target, bare target, title.
+static MD_LINK_SUB: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\[([^\]]*)\]\(\s*(?:<([^>]*)>|([^)\s]+))((?:\s+"[^"]*")?)\s*\)"#).unwrap()
+});
 
 /// What `context` should leave out. Building the link graph to find
 /// backlinks is the expensive part, so skipping it is a real saving on a
@@ -1015,88 +1018,132 @@ fn markdown_link_targets_note(href: &str, stem: &str) -> bool {
             .unwrap_or(false)
 }
 
-fn update_links_in_file(
-    path: &Path,
-    old_stem: &str,
-    new_stem: &str,
-    old_folder: Option<&str>,
-    new_folder: Option<&str>,
-) -> Result<usize> {
-    let original = std::fs::read_to_string(path)?;
+/// Rewrites every link to one note, for `rename` and `move`.
+///
+/// The regexes are built once, because the plan below runs this over every
+/// note in the vault. It has to: the only honest way to know which files hold
+/// a link to a note is to work out what the rewrite would do to each of them.
+/// Guessing from a substring of the note's name is what silently broke
+/// `[see](Old%20Note.md)` -- a link whose text contains no "Old Note" at all.
+struct LinkRewriter {
+    wiki: Regex,
+    old_stem: String,
+    new_stem: String,
+    old_folder: Option<String>,
+    new_folder: Option<String>,
+}
 
-    // A wikilink may carry a #heading or ^block-id before its |alias.
-    // Missing that group left [[Note#Heading]] untouched by a rename, which
-    // turned it into a broken link.
-    const ANCHOR: &str = r"((?:#|\^)[^\]|]*)?";
-    let wiki = match old_folder {
-        Some(folder) => Regex::new(&format!(
-            r"(?i)\[\[({}/)?{}{}(\|[^\]]+)?\]\]",
-            regex::escape(folder),
-            regex::escape(old_stem),
-            ANCHOR
-        ))?,
-        None => Regex::new(&format!(
-            r"(?i)\[\[([^\]|#^]*[/\\])?{}{}(\|[^\]]+)?\]\]",
-            regex::escape(old_stem),
-            ANCHOR
-        ))?,
-    };
-
-    let wiki_count = wiki.find_iter(&original).count();
-    let content = wiki.replace_all(&original, |c: &regex::Captures| {
-        let prefix = c.get(1).map(|m| m.as_str()).unwrap_or("");
-        let anchor = c.get(2).map(|m| m.as_str()).unwrap_or("");
-        let alias = c.get(3).map(|m| m.as_str()).unwrap_or("");
-        match (new_folder, old_folder) {
-            (Some(new), old) if Some(new) != old => {
-                format!("[[{new}/{new_stem}{anchor}{alias}]]")
-            }
-            _ if !prefix.is_empty() => format!("[[{prefix}{new_stem}{anchor}{alias}]]"),
-            _ => format!("[[{new_stem}{anchor}{alias}]]"),
-        }
-    });
-
-    let mut markdown_count = 0;
-    let content = MD_LINK_SUB.replace_all(&content, |c: &regex::Captures| {
-        let whole = c.get(0).unwrap();
-        let text = &c[1];
-        let href = &c[2];
-        let title = &c[3];
-
-        // Images are not note links; the regex crate has no lookbehind.
-        let is_image =
-            whole.start() > 0 && content.as_bytes().get(whole.start() - 1) == Some(&b'!');
-        if is_image || !markdown_link_targets_note(href, old_stem) {
-            return whole.as_str().to_string();
-        }
-
-        let (target, anchor, encoded) = split_markdown_target(href);
-        let folder = Path::new(&target)
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty() && *p != Path::new("."))
-            .map(|p| p.to_string_lossy().into_owned());
-        let folder = match (new_folder, old_folder) {
-            (Some(new), old) if Some(new) != old => Some(new.to_string()),
-            _ => folder,
+impl LinkRewriter {
+    fn new(
+        old_stem: &str,
+        new_stem: &str,
+        old_folder: Option<&str>,
+        new_folder: Option<&str>,
+    ) -> Result<Self> {
+        // A wikilink may carry a #heading or ^block-id before its |alias.
+        // Missing that group left [[Note#Heading]] untouched by a rename,
+        // which turned it into a broken link.
+        const ANCHOR: &str = r"((?:#|\^)[^\]|]*)?";
+        let wiki = match old_folder {
+            Some(folder) => Regex::new(&format!(
+                r"(?i)\[\[({}/)?{}{}(\|[^\]]+)?\]\]",
+                regex::escape(folder),
+                regex::escape(old_stem),
+                ANCHOR
+            ))?,
+            None => Regex::new(&format!(
+                r"(?i)\[\[([^\]|#^]*[/\\])?{}{}(\|[^\]]+)?\]\]",
+                regex::escape(old_stem),
+                ANCHOR
+            ))?,
         };
-
-        let new_target = match folder {
-            Some(f) => format!("{f}/{new_stem}"),
-            None => new_stem.to_string(),
-        };
-        let mut new_href = format!("{new_target}.md{anchor}");
-        if encoded || new_href.contains(' ') {
-            new_href = new_href.replace(' ', "%20");
-        }
-        markdown_count += 1;
-        format!("[{text}]({new_href}{title})")
-    });
-
-    if content != original {
-        std::fs::write(path, content.as_ref())?;
-        return Ok(wiki_count + markdown_count);
+        Ok(Self {
+            wiki,
+            old_stem: old_stem.to_string(),
+            new_stem: new_stem.to_string(),
+            old_folder: old_folder.map(str::to_string),
+            new_folder: new_folder.map(str::to_string),
+        })
     }
-    Ok(0)
+
+    /// The rewritten content and how many links changed, or `None` when this
+    /// file holds no link to the note.
+    fn rewrite(&self, original: &str) -> Option<(String, usize)> {
+        let new_stem = &self.new_stem;
+        let old_folder = self.old_folder.as_deref();
+        let new_folder = self.new_folder.as_deref();
+
+        let wiki_count = self.wiki.find_iter(original).count();
+        let content = self.wiki.replace_all(original, |c: &regex::Captures| {
+            let prefix = c.get(1).map(|m| m.as_str()).unwrap_or("");
+            let anchor = c.get(2).map(|m| m.as_str()).unwrap_or("");
+            let alias = c.get(3).map(|m| m.as_str()).unwrap_or("");
+            match (new_folder, old_folder) {
+                (Some(new), old) if Some(new) != old => {
+                    format!("[[{new}/{new_stem}{anchor}{alias}]]")
+                }
+                _ if !prefix.is_empty() => format!("[[{prefix}{new_stem}{anchor}{alias}]]"),
+                _ => format!("[[{new_stem}{anchor}{alias}]]"),
+            }
+        });
+
+        let mut markdown_count = 0;
+        let rewritten = MD_LINK_SUB.replace_all(&content, |c: &regex::Captures| {
+            let whole = c.get(0).unwrap();
+            let text = &c[1];
+            let href = c.get(2).or_else(|| c.get(3)).unwrap().as_str();
+            let angle = c.get(2).is_some();
+            let title = &c[4];
+
+            // Images are not note links; the regex crate has no lookbehind.
+            let is_image =
+                whole.start() > 0 && content.as_bytes().get(whole.start() - 1) == Some(&b'!');
+            if is_image || !markdown_link_targets_note(href, &self.old_stem) {
+                return whole.as_str().to_string();
+            }
+
+            let (target, anchor, encoded) = split_markdown_target(href);
+            let folder = Path::new(&target)
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty() && *p != Path::new("."))
+                .map(|p| p.to_string_lossy().into_owned());
+            let folder = match (new_folder, old_folder) {
+                (Some(new), old) if Some(new) != old => Some(new.to_string()),
+                _ => folder,
+            };
+
+            let new_target = match folder {
+                Some(f) => format!("{f}/{new_stem}"),
+                None => new_stem.to_string(),
+            };
+            let new_href = format!("{new_target}.md{anchor}");
+            markdown_count += 1;
+            // A path written inside <> may hold spaces as they are; a bare one
+            // has to encode them, and one that was already encoded stays that
+            // way rather than silently changing shape.
+            if angle {
+                format!("[{text}](<{new_href}>{title})")
+            } else if encoded || new_href.contains(' ') {
+                format!("[{text}]({}{title})", new_href.replace(' ', "%20"))
+            } else {
+                format!("[{text}]({new_href}{title})")
+            }
+        });
+
+        (rewritten != original).then(|| (rewritten.into_owned(), wiki_count + markdown_count))
+    }
+
+    /// Every note the rewrite would change, with the content to write.
+    fn plan(&self, config: &Config) -> Vec<(PathBuf, String, usize)> {
+        all_notes(config)
+            .into_iter()
+            .filter_map(|path| {
+                let original = std::fs::read_to_string(&path).ok()?;
+                let (content, count) = self.rewrite(&original)?;
+                Some((path, content, count))
+            })
+            .collect()
+    }
 }
 
 pub fn rename(config: &Config, old: &str, new: &str, dry_run: bool, format: &str) -> Result<()> {
@@ -1126,32 +1173,36 @@ pub fn rename(config: &Config, old: &str, new: &str, dry_run: bool, format: &str
         return Err(anyhow!("Target already exists: {new_relative}"));
     }
 
-    // Which files hold a link to it. The rewrite itself decides what changes.
-    let linking: Vec<PathBuf> = all_notes(config)
-        .into_iter()
-        .filter(|p| {
-            std::fs::read_to_string(p)
-                .map(|c| c.to_lowercase().contains(&old_stem.to_lowercase()))
-                .unwrap_or(false)
-        })
-        .collect();
+    // Which files hold a link to it, worked out by rewriting each one. The
+    // plan is computed before the file moves, so the note's own links are
+    // read from where it still is.
+    let rewriter = LinkRewriter::new(
+        old_stem,
+        new_stem,
+        old_folder.as_deref(),
+        old_folder.as_deref(),
+    )?;
+    let planned = rewriter.plan(config);
 
     if format == "text" {
         println!("Renaming: {old_relative} -> {new_relative}");
-        println!("Found {} files with links to update", linking.len());
+        println!("Found {} files with links to update", planned.len());
     }
 
     if dry_run {
         if format == "text" {
             println!("\n[DRY RUN] Would update:");
-            for path in &linking {
-                println!("  {}", relative_path(&config.vault_path, path));
+            for (path, _, count) in &planned {
+                println!(
+                    "  {} ({count} links)",
+                    relative_path(&config.vault_path, path)
+                );
             }
         } else {
             print_json(&json!({
                 "old_path": old_relative, "new_path": new_relative, "dry_run": true,
-                "files_to_update": linking.iter()
-                    .map(|p| relative_path(&config.vault_path, p)).collect::<Vec<_>>()
+                "files_to_update": planned.iter()
+                    .map(|(p, _, _)| relative_path(&config.vault_path, p)).collect::<Vec<_>>()
             }));
         }
         return Ok(());
@@ -1161,24 +1212,16 @@ pub fn rename(config: &Config, old: &str, new: &str, dry_run: bool, format: &str
 
     let mut updated_files = Vec::new();
     let mut updated_links = 0;
-    for path in &linking {
+    for (path, content, count) in &planned {
         let path = if *path == old_path { &new_path } else { path };
-        let count = update_links_in_file(
-            path,
-            old_stem,
-            new_stem,
-            old_folder.as_deref(),
-            old_folder.as_deref(),
-        )?;
-        if count > 0 {
-            updated_links += count;
-            updated_files.push(relative_path(&config.vault_path, path));
-            if format == "text" {
-                println!(
-                    "  Updated {count} links in {}",
-                    relative_path(&config.vault_path, path)
-                );
-            }
+        std::fs::write(path, content)?;
+        updated_links += count;
+        updated_files.push(relative_path(&config.vault_path, path));
+        if format == "text" {
+            println!(
+                "  Updated {count} links in {}",
+                relative_path(&config.vault_path, path)
+            );
         }
     }
 
@@ -1320,31 +1363,28 @@ pub fn move_note(
         return Err(anyhow!("Target already exists: {new_relative}"));
     }
 
-    let linking: Vec<PathBuf> = all_notes(config)
-        .into_iter()
-        .filter(|p| {
-            std::fs::read_to_string(p)
-                .map(|c| c.to_lowercase().contains(&stem.to_lowercase()))
-                .unwrap_or(false)
-        })
-        .collect();
+    let rewriter = LinkRewriter::new(&stem, &stem, old_folder.as_deref(), new_folder.as_deref())?;
+    let planned = rewriter.plan(config);
 
     if format == "text" {
         println!("Moving: {old_relative} -> {new_relative}");
-        println!("Found {} files with links to update", linking.len());
+        println!("Found {} files with links to update", planned.len());
     }
 
     if dry_run {
         if format == "text" {
             println!("\n[DRY RUN] Would update:");
-            for path in &linking {
-                println!("  {}", relative_path(&config.vault_path, path));
+            for (path, _, count) in &planned {
+                println!(
+                    "  {} ({count} links)",
+                    relative_path(&config.vault_path, path)
+                );
             }
         } else {
             print_json(&json!({
                 "old_path": old_relative, "new_path": new_relative, "dry_run": true,
-                "files_to_update": linking.iter()
-                    .map(|p| relative_path(&config.vault_path, p)).collect::<Vec<_>>()
+                "files_to_update": planned.iter()
+                    .map(|(p, _, _)| relative_path(&config.vault_path, p)).collect::<Vec<_>>()
             }));
         }
         return Ok(());
@@ -1357,24 +1397,16 @@ pub fn move_note(
 
     let mut updated_files = Vec::new();
     let mut updated_links = 0;
-    for path in &linking {
+    for (path, content, count) in &planned {
         let path = if *path == old_path { &new_path } else { path };
-        let count = update_links_in_file(
-            path,
-            &stem,
-            &stem,
-            old_folder.as_deref(),
-            new_folder.as_deref(),
-        )?;
-        if count > 0 {
-            updated_links += count;
-            updated_files.push(relative_path(&config.vault_path, path));
-            if format == "text" {
-                println!(
-                    "  Updated {count} links in {}",
-                    relative_path(&config.vault_path, path)
-                );
-            }
+        std::fs::write(path, content)?;
+        updated_links += count;
+        updated_files.push(relative_path(&config.vault_path, path));
+        if format == "text" {
+            println!(
+                "  Updated {count} links in {}",
+                relative_path(&config.vault_path, path)
+            );
         }
     }
 

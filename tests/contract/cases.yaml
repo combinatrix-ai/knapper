@@ -808,6 +808,66 @@
       "source.md":
         contains: ["[x](Projects/Moved.md)"]
 
+# ------------------------------------- A name with a space in it, in links --
+# The forms Obsidian writes when a note's name holds a space. Each referrer
+# here holds nothing but the one link, which is the point: knapper used to
+# decide which files to rewrite by looking for the note's name as a substring,
+# and neither `Old%20Note.md` nor a file listing only `<Old Note.md>` contains
+# "Old Note". The rename went ahead, the link was left behind, and nothing
+# said so.
+
+- name: encoded / a rename follows a percent-encoded link
+  vault: encoded
+  args: [rename, "Old Note", "New Note"]
+  expect:
+    file:
+      "encoded-only.md":
+        contains: ["[see](New%20Note.md)"]
+        excludes: ["Old%20Note.md"]
+
+- name: encoded / a rename follows an angle-wrapped link and keeps its shape
+  vault: encoded
+  args: [rename, "Old Note", "New Note"]
+  expect:
+    file:
+      "angle-only.md":
+        contains: ["[see](<New Note.md>)"]
+        excludes: ["<Old Note.md>"]
+
+- name: encoded / a move follows both forms
+  vault: encoded
+  args: [move, "Old Note.md", "Archive/"]
+  expect:
+    file:
+      "encoded-only.md":
+        contains: ["Archive/Old%20Note.md"]
+      "angle-only.md":
+        contains: ["<Archive/Old Note.md>"]
+
+- name: encoded / an angle-wrapped target reaches the graph whole
+  vault: encoded
+  args: [links, angle-only.md, --format, json]
+  # Read with the pattern for a bare target, `<Old Note.md>` matched up to the
+  # space: the graph recorded a link to `Old`, so the note lost an inbound link
+  # and gained a broken one.
+  expect:
+    json: [{target: "Old Note", line: 3}]
+
+- name: encoded / neither form is reported broken
+  vault: encoded
+  args: [broken-links, --format, json]
+  expect:
+    json: []
+
+- name: encoded / a dry run names the files it would rewrite
+  vault: encoded
+  args: [rename, "Old Note", "New Note", --dry-run]
+  expect:
+    stdout_contains: ["encoded-only.md", "angle-only.md"]
+    file:
+      "encoded-only.md":
+        contains: ["Old%20Note.md"]
+
 - name: refactor / rename reports both paths as json
   vault: refactor
   args: [rename, Target, Renamed, --format, json]
