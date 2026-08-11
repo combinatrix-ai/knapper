@@ -76,12 +76,23 @@ vault to begin with.
 
 **For full-text search, use [ripgrep](https://github.com/BurntSushi/ripgrep).**
 knapper deliberately ships no search and no index — `rg` already won that.
-knapper covers the structural side rg can't see, and the two compose:
+Prose is `rg`'s; structure is knapper's, and the two compose in that order:
 
 ```bash
-# structure from knapper, text from rg
-knapper orphans --format paths | xargs rg -l "TODO"
+# find candidates by text, then ask knapper about their structure
+rg -l "some phrase" Diary | head -3 | xargs -n1 knapper context --format json
 ```
+
+The line between them is not "which tool do I like" but **what the question
+is about**. Markdown structure looks regular enough to grep and is not:
+
+| Tempting | What it misses | Ask instead |
+|---|---|---|
+| `rg -o '\[\[' -g '*.md'` | `![[embeds]]`, `[[X\|alias]]`, `[[X#heading]]`, `[text](x.md)`; and it counts links inside code fences that aren't links | `knapper links` / `knapper backlinks` |
+| `rg -l '^status:' -g '*.md'` | a body line that starts the same way; quoted values, lists, Dataview `status:: open` | `knapper query --where status=open` |
+| `rg -l '#project' -g '*.md'` | `#project/sub` nests; a `#` in a URL or heading is not a tag | `knapper backlinks '#project'` |
+| `rg '\]\(.*\.md\)'` | which of those targets actually resolve, once basenames, aliases, relative paths and `ignore_links` are taken into account | `knapper broken-links` |
+| `rg '^\s*- \[ \]'` | status characters (`- [/]`, `- [-]`), due dates, tags, excluded subtrees | `knapper tasks --overdue --tag work` |
 
 ## Install
 

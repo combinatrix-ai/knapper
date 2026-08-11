@@ -1,6 +1,6 @@
 ---
 name: knapper
-description: Headless CLI for a directory of markdown notes. Use when creating daily notes, querying links and backlinks, reading/writing frontmatter, managing tasks, renaming/moving notes without breaking links, or resolving knapper:// external references through a configured provider - especially where no note-taking app is running. Triggers on: daily note, backlinks, wikilinks, frontmatter, tasks, vault, knowledge base, markdown notes, Obsidian, org-mode, knapper://, external reference, secret reference, resolve.
+description: Headless CLI for a directory of markdown notes. Reach for it whenever a question is about a vault's structure rather than its prose - and instead of a regex over markdown syntax, which gets embeds, aliases, heading anchors and code fences wrong. Covers backlinks and the link graph, broken links and orphans, tasks with due dates and statuses, frontmatter and Dataview fields, link-preserving rename and move, daily notes, vault lint, and knapper:// external references through a configured provider. Full-text search is deliberately absent: use rg for that. Triggers on: backlinks, wikilinks, broken links, orphans, link graph, daily note, tasks, due date, overdue, frontmatter, rename note, move note, vault, knowledge base, markdown notes, Obsidian, org-mode, knapper://, external reference, resolve.
 ---
 
 # knapper
@@ -15,11 +15,30 @@ Use it for the operations that need to understand a vault's *structure*, which
 plain shell tools cannot do: the link graph, link-preserving renames, tasks,
 frontmatter.
 
-**Do not use it for full-text search.** knapper ships none. Use `rg`, and
-compose the two:
+**Do not use it for full-text search.** knapper ships none and never will.
+Prose -- a name, a phrase, a keyword -- belongs to `rg`, or to whatever search
+your harness already gives you.
+
+**Do reach for it instead of a regex over markdown syntax.** A vault's
+structure looks regular enough to grep and is not: the pattern fires inside a
+code fence, misses the aliased form, and cannot see what some other file says
+about this one. If you are about to write one of the greps on the left, the
+command on the right is the answer you actually wanted.
+
+| Tempting | Ask knapper instead | What the regex gets wrong |
+|---|---|---|
+| `rg -o '\[\[' -g '*.md'` | `knapper links FILE`, `knapper backlinks FILE` | `![[embeds]]`, `[[X\|alias]]`, `[[X#heading]]` and `[text](x.md)` are links too; the ones inside code fences and `%%comments%%` are not. Backlinks are not greppable at all without resolving basenames and aliases first |
+| `rg -l '^status:' -g '*.md'` | `knapper query --where status=open` | a body line may start the same way; the value may be quoted, a list, or a Dataview `status:: open`; and `query` filters and sorts on `inlinks`/`outlinks`/`broken` in the same breath |
+| `rg -l '#project' -g '*.md'` | `knapper backlinks '#project'` | `#project/sub` nests, a `#` in a URL or a heading is not a tag, and a tag in code is not a tag |
+| `rg -l 'Old Name' \| xargs sed -i ''` | `knapper rename 'Old Name' 'New Name'`, `knapper move FILE DIR/` | `sed` rewrites text but never the file itself, misses whichever link syntax you did not think of, and mangles `[[X\|alias]]` and `[[X#heading]]`. Both commands take `--dry-run`, so the rewrite is reviewable before it happens |
+| `rg '\]\(.*\.md\)' -g '*.md'` | `knapper broken-links` | whether a target resolves depends on basenames, aliases, relative paths and `ignore_links` -- a regex can find link syntax but never tell you which links are broken |
+| `rg '^\s*- \[ \]' -g '*.md'` | `knapper tasks --overdue`, `--due-to`, `--tag`, `--status` | the regex has no notion of a status character (`- [/]`, `- [-]`, custom ones), a due date, a tag, or an excluded subtree |
+
+Search first, then ask knapper about the structure -- that is the composition
+that works:
 
 ```bash
-knapper orphans --format paths | xargs rg -l "TODO"
+rg -l "some phrase" Diary | head -3 | xargs -n1 knapper context --format json
 ```
 
 If Obsidian itself is running on this machine, prefer the official `obsidian`
@@ -310,6 +329,11 @@ Occurrences are ordered by source, then line, then column.
 Plain markdown checkboxes. The Obsidian Tasks emoji convention (`📅` due,
 `⏳` scheduled, `🛫` start, `✅` done, `➕` created, `🔁` recurring, `⏫🔼🔽`
 priority) is read and written but never required.
+
+Unlike links and tags, a checkbox is *not* masked out of a code fence or a
+`%%comment%%`: a `- [ ]` written inside a fenced example is reported as a task.
+In a vault that documents its own conventions, `exclude:` the folder that holds
+those examples, or read a count from `--group file` before trusting it.
 
 ```bash
 knapper tasks                                   # open tasks
