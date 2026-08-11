@@ -93,6 +93,15 @@ resolve_release_tag() {
     final_url="$(curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
       --output /dev/null --write-out '%{url_effective}' "$latest_url")" \
       || die "could not resolve the latest knapper release"
+    # With at least one release, /releases/latest redirects to /releases/tag/vX.
+    # With none it lands on /releases, whose last path segment is the literal
+    # word "releases" -- which used to reach the version check and be reported
+    # as an invalid version rather than as the missing release it is.
+    case "$final_url" in
+      */releases/tag/*) ;;
+      *) die "$KNAPPER_GITHUB_REPO has published no release to install.
+Build from source instead: git clone https://github.com/${KNAPPER_GITHUB_REPO} && cargo build --release" ;;
+    esac
     release_tag="${final_url##*/}"
   else
     case "$requested" in

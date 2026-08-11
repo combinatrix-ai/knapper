@@ -59,5 +59,15 @@ pub fn run(check_only: bool, yes: bool) -> Result<()> {
 }
 
 fn releases_failed(err: self_update::errors::Error) -> anyhow::Error {
+    // A repository with no published release answers 404, the same status as
+    // one that does not exist. Saying only "404" sends the reader looking for
+    // a network or permission problem that is not there.
+    let message = err.to_string();
+    if message.contains("404") {
+        return anyhow!(
+            "{OWNER}/{REPO} has published no release to update to.\n\
+             This binary was built from source; `cargo build --release` builds the next one."
+        );
+    }
     anyhow!("could not read the releases of {OWNER}/{REPO}: {err}")
 }
