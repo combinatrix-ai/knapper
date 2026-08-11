@@ -17,8 +17,12 @@ static WIKILINK: LazyLock<Regex> =
 
 // [text](target). Images are excluded by checking the preceding byte, since
 // the regex crate has no lookbehind.
+// A target wrapped in <> may hold spaces, so it cannot be read with the same
+// pattern as a bare one: `<With Space.md>` matched up to the space and left
+// the graph pointing at `With`, which lost the note an inbound link and
+// invented a broken one.
 static MARKDOWN_LINK: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\[[^\]]*\]\(\s*<?([^)>\s]+)>?[^)]*\)").unwrap());
+    LazyLock::new(|| Regex::new(r"\[[^\]]*\]\(\s*(?:<([^>]*)>|([^)>\s]+))[^)]*\)").unwrap());
 
 // Unicode-aware so CJK tags are found; nested tags keep their full path.
 static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|\s)#([\w/-]+)").unwrap());
@@ -269,7 +273,8 @@ pub fn extract_markdown_links(content: &str) -> Vec<String> {
         if whole.start() > 0 && bytes[whole.start() - 1] == b'!' {
             continue;
         }
-        targets.extend(normalize_markdown_target(&c[1]));
+        let href = c.get(1).or_else(|| c.get(2)).unwrap().as_str();
+        targets.extend(normalize_markdown_target(href));
     }
     targets
 }
