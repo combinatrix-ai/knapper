@@ -437,6 +437,11 @@ enum Command {
         breadcrumbs: bool,
         #[arg(long = "group", value_parser = ["file", "date"], help = "Group results")]
         group: Option<String>,
+        #[arg(
+            long = "prose-only",
+            help = "Skip checkboxes in code fences, %%comments%% and inline code"
+        )]
+        prose_only: bool,
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
@@ -756,6 +761,7 @@ fn run() -> Result<()> {
             context,
             breadcrumbs,
             group,
+            prose_only,
             format,
         } => {
             let filters = tasks::Filters {
@@ -777,6 +783,7 @@ fn run() -> Result<()> {
                 done_to: done_to.as_deref(),
                 context_before: before.or(context).unwrap_or(0),
                 context_after: after.or(context).unwrap_or(0),
+                prose_only,
             };
             // A rejected filter value is a usage error, which is exit 2.
             let found = match tasks::find_tasks(&config, &filters) {

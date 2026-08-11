@@ -332,9 +332,20 @@ Plain markdown checkboxes. The Obsidian Tasks emoji convention (`📅` due,
 priority) is read and written but never required.
 
 Unlike links and tags, a checkbox is *not* masked out of a code fence or a
-`%%comment%%`: a `- [ ]` written inside a fenced example is reported as a task.
-In a vault that documents its own conventions, `exclude:` the folder that holds
-those examples, or read a count from `--group file` before trusting it.
+`%%comment%%` by default: a `- [ ]` inside a fenced example counts. That is
+deliberate -- masking can only ever *hide* a task, and an unclosed fence blanks
+the rest of a file -- so the default errs toward showing you too much rather
+than silently dropping something you meant to do.
+
+`--prose-only` opts out, for a vault that documents its own conventions:
+
+```bash
+knapper tasks --prose-only    # skip fenced, commented and inline-code checkboxes
+```
+
+It drops the examples and keeps a real task whose text merely contains an
+inline-code span. `exclude:` in `knapper.config.md` is the other answer when
+the examples all live in one folder.
 
 ```bash
 knapper tasks                                   # open tasks

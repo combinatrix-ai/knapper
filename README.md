@@ -92,7 +92,7 @@ is about**. Markdown structure looks regular enough to grep and is not:
 | `rg -l '^status:' -g '*.md'` | a body line that starts the same way; quoted values, lists, Dataview `status:: open` | `knapper query --where status=open` |
 | `rg -l '#project' -g '*.md'` | `#project/sub` nests; a `#` in a URL or heading is not a tag | `knapper backlinks '#project'` |
 | `rg '\]\(.*\.md\)'` | which of those targets actually resolve, once basenames, aliases, relative paths and `ignore_links` are taken into account | `knapper broken-links` |
-| `rg '^\s*- \[ \]'` | status characters (`- [/]`, `- [-]`), due dates, tags, excluded subtrees | `knapper tasks --overdue --tag work` |
+| `rg '^\s*- \[ \]'` | status characters (`- [/]`, `- [-]`), due dates, tags, excluded subtrees; and `--prose-only` drops the checkboxes that live in fenced examples | `knapper tasks --overdue --tag work` |
 
 ## Install
 
@@ -739,7 +739,15 @@ knapper tasks --due-from 2026-08-01 --due-to 2026-08-31
 knapper tasks --exclude Archive/ --tag work
 knapper tasks new "write the README" --due 2026-08-01
 knapper tasks done "write the README"       # exact match; --partial for substring
+knapper tasks --prose-only                  # skip checkboxes in fenced examples
 ```
+
+Every checkbox counts by default, including one written inside a code fence or
+a `%%comment%%` — the one place knapper does not mask non-prose, and
+deliberately: masking can only ever *hide* a task, and an unclosed fence blanks
+the rest of a file. A visible example costs less than a missing entry on a list
+you act on. `--prose-only` is the opt-out for a vault that documents its own
+conventions.
 
 Statuses are configurable: `open` `[ ]`, `wip` `[/]`, `done` `[x]`, and
 `cancel` `[-]` are built in, and `knapper.config.md` can override their

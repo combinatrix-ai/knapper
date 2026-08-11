@@ -404,6 +404,40 @@
   expect:
     stdout_contains: ["research", "project"]
 
+# ---------------------------------------- Checkboxes that are not tasks --
+# `tasks` counts every checkbox by default, unlike every other scanner here.
+# Masking can only ever hide a task -- an unclosed fence blanks the rest of a
+# file -- and a task list is acted on, so a visible example costs less than a
+# missing entry. `--prose-only` is how a vault that documents its own
+# conventions opts out.
+
+- name: prose / every checkbox counts by default
+  vault: prose
+  args: [tasks, --format, json]
+  expect:
+    json_length: 5
+
+- name: prose / --prose-only drops the fenced and commented ones
+  vault: prose
+  args: [tasks, --prose-only, --format, json]
+  expect:
+    json_length: 3
+
+- name: prose / --prose-only keeps a task that merely contains inline code
+  vault: prose
+  args: [tasks, --prose-only, --format, json]
+  # Masking blanks characters in place, so the marker of a real task survives
+  # even when its text holds a `- [ ] marker` span. Dropping it would be the
+  # false negative this flag exists to avoid elsewhere.
+  expect:
+    stdout_contains: ["marker` helper honest"]
+
+- name: prose / --prose-only leaves the fenced example out
+  vault: prose
+  args: [tasks, --prose-only, --format, json]
+  expect:
+    stdout_excludes: ["example inside a code fence", "task inside a comment"]
+
 # ------------------------------------------------- Cross-cutting behaviour --
 
 - name: query subsumes orphans

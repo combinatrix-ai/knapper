@@ -14,6 +14,7 @@ use regex::Regex;
 use serde_json::json;
 
 use crate::org;
+use crate::parser::mask_noncontent;
 use crate::vault::{all_notes, is_org, relative_path, Config};
 
 static CHECKBOX: LazyLock<Regex> =
@@ -389,6 +390,15 @@ pub struct Filters<'a> {
     pub done_to: Option<&'a str>,
     pub context_before: usize,
     pub context_after: usize,
+    /// Drop checkboxes that sit where knapper does not read prose: a fenced
+    /// example, a `%%comment%%`, an inline-code span, an outliner macro.
+    ///
+    /// Off by default, unlike every other scanner, and deliberately. Masking
+    /// can only ever hide a task -- an unclosed fence blanks the rest of a
+    /// file -- and a task list is acted on daily, where a missing entry costs
+    /// more than a visible example does. Vaults that document their own
+    /// conventions ask for this; most do not need it.
+    pub prose_only: bool,
 }
 
 /// How to render what was found. Separate from Filters because none of it
@@ -498,6 +508,16 @@ pub fn find_tasks(config: &Config, f: &Filters) -> Result<Vec<Task>> {
         let headings = collect_headings(&lines);
         let wants_context = f.context_before > 0 || f.context_after > 0;
 
+        // Masking blanks characters in place, so a line that held nothing but
+        // a fenced or commented checkbox comes back empty while a real task
+        // carrying inline code keeps its marker. That is the whole test.
+        let prose: Option<Vec<String>> = f.prose_only.then(|| {
+            let (_, body) = crate::note::split_frontmatter(&content);
+            let offset = content.len() - body.len();
+            let masked = format!("{}{}", &content[..offset], mask_noncontent(body));
+            masked.split('\n').map(str::to_string).collect()
+        });
+
         let candidates: Vec<(usize, char, String)> = if is_org(&path) {
             org_candidates(&content, &lines)
         } else {
@@ -518,6 +538,15 @@ pub fn find_tasks(config: &Config, f: &Filters) -> Result<Vec<Task>> {
         };
 
         for (index, checkbox, text) in candidates {
+            if let Some(prose) = &prose {
+                let masked_away = match prose.get(index) {
+                    Some(line) => line.trim().is_empty(),
+                    None => true,
+                };
+                if masked_away {
+                    continue;
+                }
+            }
             let name = status_name(checkbox, &all_statuses);
             let closed = all_statuses.get(&name).map(|s| s.closed).unwrap_or(false);
 
