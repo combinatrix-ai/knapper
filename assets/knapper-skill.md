@@ -349,7 +349,10 @@ the examples all live in one folder.
 ```bash
 knapper tasks                                   # open tasks
 knapper tasks --overdue
+knapper tasks --available                      # start date absent or <= today
 knapper tasks --due-from 2026-08-01 --due-to 2026-08-31
+knapper tasks --start-on 2026-08-01
+knapper tasks --scheduled-from 2026-08-01 --scheduled-to 2026-08-07
 knapper tasks --status wip --tag work
 knapper tasks --breadcrumbs                     # with the heading path
 knapper tasks --group date                      # or --group file
@@ -362,7 +365,7 @@ rejected rather than guessed at, with exit status 2.
 Changing a task:
 
 ```bash
-knapper tasks new "write the README" --due 2026-08-01
+knapper tasks new "write the README" --start 2026-07-28 --due 2026-08-01
 knapper tasks done "write the README"    # exact match; --partial for substring
 knapper tasks wip TEXT
 knapper tasks cancel TEXT

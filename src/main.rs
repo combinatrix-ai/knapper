@@ -82,6 +82,10 @@ enum TaskCommand {
         file: Option<String>,
         #[arg(long = "due", help = "Due date (YYYY-MM-DD)")]
         due: Option<String>,
+        #[arg(long = "scheduled", help = "Scheduled date (YYYY-MM-DD)")]
+        scheduled: Option<String>,
+        #[arg(long = "start", help = "Start date (YYYY-MM-DD)")]
+        start: Option<String>,
         #[arg(long = "recurring", help = "Recurrence (e.g. 'every 3 months')")]
         recurring: Option<String>,
         #[arg(long = "priority", value_parser = ["high", "medium", "low"])]
@@ -405,12 +409,29 @@ enum Command {
         overdue: bool,
         #[arg(long = "has-date", help = "Show only tasks with any date marker")]
         has_date: bool,
+        #[arg(
+            long = "available",
+            help = "Hide tasks whose start date is after today"
+        )]
+        available: bool,
         #[arg(long = "due-on")]
         due_on: Option<String>,
         #[arg(long = "due-from")]
         due_from: Option<String>,
         #[arg(long = "due-to")]
         due_to: Option<String>,
+        #[arg(long = "scheduled-on")]
+        scheduled_on: Option<String>,
+        #[arg(long = "scheduled-from")]
+        scheduled_from: Option<String>,
+        #[arg(long = "scheduled-to")]
+        scheduled_to: Option<String>,
+        #[arg(long = "start-on")]
+        start_on: Option<String>,
+        #[arg(long = "start-from")]
+        start_from: Option<String>,
+        #[arg(long = "start-to")]
+        start_to: Option<String>,
         #[arg(long = "created-from")]
         created_from: Option<String>,
         #[arg(long = "created-to")]
@@ -706,6 +727,8 @@ fn run() -> Result<()> {
                 text,
                 file,
                 due,
+                scheduled,
+                start,
                 recurring,
                 priority,
             } => tasks::new_task(
@@ -713,6 +736,8 @@ fn run() -> Result<()> {
                 &text,
                 file.as_deref(),
                 due.as_deref(),
+                scheduled.as_deref(),
+                start.as_deref(),
                 recurring.as_deref(),
                 priority.as_deref(),
             ),
@@ -745,9 +770,16 @@ fn run() -> Result<()> {
             recurring,
             overdue,
             has_date,
+            available,
             due_on,
             due_from,
             due_to,
+            scheduled_on,
+            scheduled_from,
+            scheduled_to,
+            start_on,
+            start_from,
+            start_to,
             created_from,
             created_to,
             done_from,
@@ -770,6 +802,7 @@ fn run() -> Result<()> {
                 recurring_only: recurring,
                 overdue,
                 has_date,
+                available,
                 file: file.as_deref(),
                 exclude: &exclude,
                 tag: tag.as_deref(),
@@ -777,6 +810,12 @@ fn run() -> Result<()> {
                 due_on: due_on.as_deref(),
                 due_from: due_from.as_deref(),
                 due_to: due_to.as_deref(),
+                scheduled_on: scheduled_on.as_deref(),
+                scheduled_from: scheduled_from.as_deref(),
+                scheduled_to: scheduled_to.as_deref(),
+                start_on: start_on.as_deref(),
+                start_from: start_from.as_deref(),
+                start_to: start_to.as_deref(),
                 created_from: created_from.as_deref(),
                 created_to: created_to.as_deref(),
                 done_from: done_from.as_deref(),

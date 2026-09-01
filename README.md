@@ -730,14 +730,17 @@ describe. The source is [`assets/knapper-skill.md`](assets/knapper-skill.md).
 
 Tasks are plain markdown checkboxes. The emoji date convention popularised by
 the [Obsidian Tasks](https://publish.obsidian.md/tasks/) plugin (`📅` due,
-`⏳` scheduled, `✅` done, `🔁` recurring) is read and written but never
+`⏳` scheduled, `🛫` start, `✅` done, `🔁` recurring) is read and written but never
 required — a vault of bare `- [ ]` items works fine.
 
 ```bash
 knapper tasks --overdue                     # past due
+knapper tasks --available                   # no start date, or start date <= today
 knapper tasks --due-from 2026-08-01 --due-to 2026-08-31
+knapper tasks --start-on 2026-08-01
+knapper tasks --scheduled-from 2026-08-01 --scheduled-to 2026-08-07
 knapper tasks --exclude Archive/ --tag work
-knapper tasks new "write the README" --due 2026-08-01
+knapper tasks new "write the README" --start 2026-07-28 --due 2026-08-01
 knapper tasks done "write the README"       # exact match; --partial for substring
 knapper tasks --prose-only                  # skip checkboxes in fenced examples
 ```
@@ -747,6 +750,11 @@ a `%%comment%%` — the one place knapper does not mask non-prose, and
 deliberately: masking can only ever *hide* a task, and a visible example costs
 less than a missing entry on a list you act on. `--prose-only` is the opt-out
 for a vault that documents its own conventions.
+
+`--available` is also opt-in: it hides only tasks whose `🛫` start date is in
+the future. Tasks without a start date remain visible, and plain `knapper
+tasks` keeps its established whole-list behaviour. A scheduled date says when
+you intend to work; it does not make a task unavailable.
 
 Statuses are configurable: `open` `[ ]`, `wip` `[/]`, `done` `[x]`, and
 `cancel` `[-]` are built in, and `knapper.config.md` can override their

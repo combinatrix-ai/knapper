@@ -268,6 +268,13 @@ fn in_range(date: &Option<String>, range: &Option<Range>) -> bool {
     }
 }
 
+fn is_available_on(task: &Task, date: NaiveDate) -> bool {
+    task.start_date
+        .as_deref()
+        .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+        .map_or(true, |start| start <= date)
+}
+
 /// (line index, checkbox char, text) for the outliner notations.
 fn outliner_candidates(lines: &[&str], flavor: &str) -> Vec<(usize, char, String)> {
     let mut out = Vec::new();
@@ -377,6 +384,7 @@ pub struct Filters<'a> {
     pub recurring_only: bool,
     pub overdue: bool,
     pub has_date: bool,
+    pub available: bool,
     pub file: Option<&'a str>,
     pub exclude: &'a [String],
     pub tag: Option<&'a str>,
@@ -384,6 +392,12 @@ pub struct Filters<'a> {
     pub due_on: Option<&'a str>,
     pub due_from: Option<&'a str>,
     pub due_to: Option<&'a str>,
+    pub scheduled_on: Option<&'a str>,
+    pub scheduled_from: Option<&'a str>,
+    pub scheduled_to: Option<&'a str>,
+    pub start_on: Option<&'a str>,
+    pub start_from: Option<&'a str>,
+    pub start_to: Option<&'a str>,
     pub created_from: Option<&'a str>,
     pub created_to: Option<&'a str>,
     pub done_from: Option<&'a str>,
@@ -457,6 +471,25 @@ pub fn find_tasks(config: &Config, f: &Filters) -> Result<Vec<Task>> {
         "--created-to",
     )?;
     let done_range = inclusive_range(f.done_from, f.done_to, "--done-from", "--done-to")?;
+    let scheduled_range = match (f.scheduled_from, f.scheduled_to, f.scheduled_on) {
+        (None, None, Some(on)) => {
+            let d = require_ymd(on, "--scheduled-on")?;
+            Some((d, d.succ_opt().unwrap_or(NaiveDate::MAX)))
+        }
+        _ => inclusive_range(
+            f.scheduled_from,
+            f.scheduled_to,
+            "--scheduled-from",
+            "--scheduled-to",
+        )?,
+    };
+    let start_range = match (f.start_from, f.start_to, f.start_on) {
+        (None, None, Some(on)) => {
+            let d = require_ymd(on, "--start-on")?;
+            Some((d, d.succ_opt().unwrap_or(NaiveDate::MAX)))
+        }
+        _ => inclusive_range(f.start_from, f.start_to, "--start-from", "--start-to")?,
+    };
 
     let all_statuses = resolve_statuses(config);
     let today = chrono::Local::now().date_naive();
@@ -589,6 +622,8 @@ pub fn find_tasks(config: &Config, f: &Filters) -> Result<Vec<Task>> {
                 && task.due_date.is_none()
                 && task.created_date.is_none()
                 && task.done_date.is_none()
+                && task.scheduled_date.is_none()
+                && task.start_date.is_none()
             {
                 continue;
             }
@@ -600,6 +635,17 @@ pub fn find_tasks(config: &Config, f: &Filters) -> Result<Vec<Task>> {
             }
             if done_range.is_some() && !in_range(&task.done_date, &done_range) {
                 continue;
+            }
+            if scheduled_range.is_some() && !in_range(&task.scheduled_date, &scheduled_range) {
+                continue;
+            }
+            if start_range.is_some() && !in_range(&task.start_date, &start_range) {
+                continue;
+            }
+            if f.available {
+                if !is_available_on(&task, today) {
+                    continue;
+                }
             }
             if f.overdue {
                 match task
@@ -865,6 +911,8 @@ pub fn new_task(
     text: &str,
     file: Option<&str>,
     due: Option<&str>,
+    scheduled: Option<&str>,
+    start: Option<&str>,
     recurring: Option<&str>,
     priority: Option<&str>,
 ) -> Result<()> {
@@ -898,6 +946,14 @@ pub fn new_task(
     }
     if let Some(r) = recurring {
         line.push_str(&format!(" 🔁 {}", r.trim()));
+    }
+    if let Some(s) = start {
+        let date = require_ymd(s, "--start")?;
+        line.push_str(&format!(" 🛫 {}", date.format("%Y-%m-%d")));
+    }
+    if let Some(s) = scheduled {
+        let date = require_ymd(s, "--scheduled")?;
+        line.push_str(&format!(" ⏳ {}", date.format("%Y-%m-%d")));
     }
     if let Some(d) = due {
         let date = require_ymd(d, "--due")?;
@@ -997,6 +1053,18 @@ mod tests {
         assert_eq!(parse_priority("x 🔼").as_deref(), Some("medium"));
         assert_eq!(parse_priority("x 🔽").as_deref(), Some("low"));
         assert_eq!(parse_priority("x"), None);
+    }
+
+    #[test]
+    fn availability_hides_only_tasks_with_a_future_start_date() {
+        let today = NaiveDate::from_ymd_opt(2026, 8, 16).unwrap();
+        let mut task = Task::default();
+        assert!(is_available_on(&task, today));
+
+        task.start_date = Some("2026-08-16".into());
+        assert!(is_available_on(&task, today));
+        task.start_date = Some("2026-08-17".into());
+        assert!(!is_available_on(&task, today));
     }
 
     #[test]
