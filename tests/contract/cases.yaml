@@ -57,6 +57,20 @@
     json_length: 2
     stdout_contains: ['"due_date": "2026-08-01"', '"due_date": "2026-07-29"']
 
+- name: obsidian / start date has its own exact filter
+  vault: obsidian
+  args: [tasks, --start-on, "2026-08-02", --format, json]
+  expect:
+    json_length: 1
+    stdout_contains: ['"start_date": "2026-08-02"']
+
+- name: obsidian / scheduled date has its own exact filter
+  vault: obsidian
+  args: [tasks, --scheduled-on, "2026-08-05", --format, json]
+  expect:
+    json_length: 1
+    stdout_contains: ['"scheduled_date": "2026-08-05"']
+
 - name: obsidian / an unparseable date is rejected, not ignored
   vault: obsidian
   args: [tasks, --due-from, today]
@@ -540,12 +554,12 @@
 - name: tasks new appends a task with its markers
   vault: obsidian
   # --file rather than the default daily note, whose name is today's date.
-  args: [tasks, new, "write it down", --due, "2026-09-01", --file, "Daily/2026-07-28.md"]
+  args: [tasks, new, "write it down", --start, "2026-08-20", --scheduled, "2026-08-25", --due, "2026-09-01", --file, "Daily/2026-07-28.md"]
   expect:
-    stdout_contains: ["write it down", "📅 2026-09-01"]
+    stdout_contains: ["write it down", "🛫 2026-08-20", "⏳ 2026-08-25", "📅 2026-09-01"]
     file:
       "Daily/2026-07-28.md":
-        contains: ["- [ ] write it down", "📅 2026-09-01"]
+        contains: ["- [ ] write it down", "🛫 2026-08-20", "⏳ 2026-08-25", "📅 2026-09-01"]
 
 - name: move relocates a note and updates links
   vault: obsidian
