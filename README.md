@@ -885,6 +885,30 @@ status: **2** for a malformed reference or bad usage, **3** for a provider that
 is not configured, **4** for a provider command that would not run, failed,
 timed out, or returned nothing usable.
 
+### Chrome fill bridge
+
+The optional `integration/chrome/` package lets an agent ask Chrome to fill one
+user-selected web text control without returning the resolved value to the
+agent process. Click the extension action once to start a three-minute,
+tab-bound selection session, then click one visible editable text-like input.
+After each successful
+`knapper-chrome-client knapper://... --expected-origin https://example.com`
+request, the selected element is discarded and the session waits for another
+field click; the extension action does not need to be pressed between fields.
+Clicking the action again, reloading, navigating, closing the tab, or letting
+the session expire turns the mode off. The local caller cannot supply a CSS
+selector, and the extension never clicks or submits. The Native Messaging host
+keeps the value on Chrome's pipe and returns status-only JSON over its user-only
+Unix socket. `knapper-chrome-client status` reports only the safe session mode
+and origin. See
+[`integration/chrome/README.md`](integration/chrome/README.md) for installation
+and the native-host manifest.
+
+Provider commands are launched from Chrome's Native Messaging environment.
+On macOS that environment can have a narrower `PATH` than an interactive
+shell, so use an absolute executable path (for example
+`/opt/homebrew/bin/op`) for providers installed by Homebrew.
+
 ## Command reference
 
 | Command | What it does |
@@ -910,6 +934,8 @@ timed out, or returned nothing usable.
 | `knapper tags` | List tags, or find files by tag with `--find` |
 | `knapper refs [FILE]` | Find `knapper://` references, optionally for one provider |
 | `knapper resolve REF` | Read one reference's value through its provider's command |
+| `knapper-chrome-client REF --expected-origin ORIGIN` | Fill the text control selected in Chrome without returning the value |
+| `knapper-chrome-client status` | Report the Chrome fill session mode and origin without returning a value or page URL |
 | `knapper provider list / set / remove` | Configure those commands, outside the vault |
 | `knapper skill` | Print the embedded agent skill, or `--install` it |
 | `knapper self-update` | Replace this binary with the newest release |

@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Knapper Fill",
+  "version": "0.1.0",
+  "description": "Fill the focused web form control from a Knapper external reference.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzv1C3dvV+qczof7Ltz86z7w/eIhlYv5P10XzN4DOk3GBsvwOYdr812IK2tqo8eKxq9+jexelc69oGM0Tp8cwY+B2JKzDyryJri5gRqefOJPLare/aEueRgjkto99qeyyZw8pA7XZm6rPvr497SRXfLLhuHHcR0izgdFTwsjFa8LRlLd25ihd0AwD6EfdAp45OXUqyAbfpK6Txo4E5YaH8ydkUIdM93C5LMYRfOFDplzPUV6XpWRrratqBiJ1IjwVx3vPYvGhMZGSCptKn7hy2UhE3LrH3xcc++SzEZd1JTe1gFsvgFpe1zPybwDd0xa77uNIz34UFQCSIlfeqWdn1wIDAQAB",
+  "permissions": [
+    "activeTab",
+    "nativeMessaging",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "service_worker.js"
+  },
+  "action": {
+    "default_title": "Knapper Fill: select a text field"
+  }
+}

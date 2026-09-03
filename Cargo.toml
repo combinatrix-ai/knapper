@@ -11,6 +11,14 @@ repository = "https://github.com/combinatrix-ai/knapper"
 name = "knapper"
 path = "src/main.rs"
 
+[[bin]]
+name = "knapper-chrome-host"
+path = "src/bin/knapper-chrome-host.rs"
+
+[[bin]]
+name = "knapper-chrome-client"
+path = "src/bin/knapper-chrome-client.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 regex = "1"

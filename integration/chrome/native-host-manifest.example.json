@@ -1,0 +1,9 @@
+{
+  "name": "com.knapper.chrome",
+  "description": "Knapper Chrome external-reference bridge",
+  "path": "/absolute/path/to/knapper-chrome-host",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://deebiomaecdepcdgeedbohdedkhnflkc/"
+  ]
+}
