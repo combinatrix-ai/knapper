@@ -100,6 +100,44 @@ batch before any write. Navigation or a different `document_id` is never
 retried. Successful results continue to use the original requested
 `target_id` values, so callers do not need to rewrite their action list.
 
+## Live fixture E2E
+
+The hermetic Node tests above exercise the worker and content-script contracts
+without Chrome. A separate local fixture can exercise the complete installed
+path: fixture page → loaded extension → Native Messaging host → Unix socket →
+`knapper-chrome-client`.
+
+```bash
+node integration/chrome/e2e/live_bridge_test.mjs \
+  --client "$HOME/.local/bin/knapper-chrome-client"
+```
+
+The runner serves
+`http://knapper-e2e.localhost:48173/bridge-fixture.html` from the loopback
+interface and waits for one matching tab. The dedicated `.localhost` hostname
+keeps its Chrome host permission separate from ordinary `127.0.0.1` tools.
+Open that exact URL in Chrome, click **Knapper Fill**, and choose **ALL** once
+for the local origin. The rest is automatic. It uses only fixed, non-secret
+literal values and never submits a form. It verifies:
+
+- exact-origin tab discovery through the real CLI;
+- one successful same-document stale-target remap with the original
+  `target_id` in the result;
+- `ambiguous_target` for a duplicate semantic target; and
+- no partial write to either the unambiguous or ambiguous part of the rejected
+  batch.
+
+Use `--port`, `--timeout`, or `--client` to override the defaults. If a local
+resolver does not support the dedicated hostname, `--host 127.0.0.1` is the
+only fallback; note that Chrome then grants the extension access to that
+loopback host rather than the fixture-specific hostname. The page is
+served with `Cache-Control: no-store` and a restrictive Content Security
+Policy. The runner stops its server on success or failure; the Chrome tab can
+then be closed normally. If the tab remains open, it notices the next runner's
+local token and reloads once. That reload wakes a suspended MV3 worker, which
+restores persisted ALL mode and Native Messaging, so later runs need no popup
+interaction.
+
 ## PICK client workflow
 
 1. Open an HTTP(S) page and choose **PICK** in the extension popup.

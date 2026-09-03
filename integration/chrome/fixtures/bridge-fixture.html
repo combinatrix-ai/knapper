@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Knapper Chrome bridge fixture</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.45 system-ui, sans-serif; }
+    body { margin: 0; background: #f5f7f8; color: #17211b; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 20px 48px; }
+    h1 { margin: 0 0 8px; font-size: 1.65rem; }
+    .lede { margin: 0 0 24px; color: #53635a; }
+    .status { margin: 0 0 24px; padding: 12px 14px; border: 1px solid #b9c9bd; border-radius: 8px; background: #eef5ef; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    section { padding: 18px; border: 1px solid #d3ddd5; border-radius: 10px; background: white; }
+    h2 { margin: 0 0 8px; font-size: 1.08rem; }
+    section p { margin: 0 0 14px; color: #53635a; font-size: .93rem; }
+    label { display: block; margin-top: 12px; font-weight: 600; }
+    input { display: block; box-sizing: border-box; width: 100%; margin-top: 5px; padding: 9px 10px; border: 1px solid #87988c; border-radius: 6px; font: inherit; }
+    input:focus { outline: 3px solid #b9e2c4; outline-offset: 1px; border-color: #18794e; }
+    code { font-size: .88em; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Knapper Chrome bridge fixture</h1>
+    <p class="lede">A local, non-submitting page for the live ALL-mode form bridge test.</p>
+    <p id="fixture-status" class="status" role="status" aria-live="polite">Ready. The runner will drive the fields through Native Messaging.</p>
+
+    <div class="grid">
+      <section aria-labelledby="rerender-heading">
+        <h2 id="rerender-heading">Unique rerender recovery</h2>
+        <p>The trigger replaces this form synchronously. The recovery field keeps the same semantic identity.</p>
+        <form id="rerender-form" novalidate>
+          <label>Rerender trigger
+            <input type="text" name="rerender-trigger" autocomplete="off">
+          </label>
+          <label>Recovery target
+            <input type="text" name="recovery-target" autocomplete="off">
+          </label>
+        </form>
+      </section>
+
+      <section aria-labelledby="ambiguous-heading">
+        <h2 id="ambiguous-heading">Ambiguous remap guard</h2>
+        <p>The trigger replaces one target with two identical targets. The old target write must be rejected atomically.</p>
+        <form id="ambiguity-form" novalidate>
+          <label>Reset or duplicate trigger
+            <input type="text" name="ambiguity-trigger" autocomplete="off">
+          </label>
+          <label>Ambiguous target
+            <input type="text" name="ambiguous-target" autocomplete="off">
+          </label>
+        </form>
+      </section>
+    </div>
+
+    <p class="sr-only" id="fixture-contract">Fixture contract: no submission, no external requests, fixed literal values only.</p>
+  </main>
+
+  <script>
+    (() => {
+      const status = document.querySelector("#fixture-status");
+      const RUN_TOKEN = "__KNAPPER_RUN_TOKEN__";
+      const RERENDER = "fixture-rerender-now";
+      const RESET = "fixture-reset";
+      const DUPLICATE = "fixture-create-duplicates";
+
+      function setStatus(text) {
+        status.textContent = text;
+        document.documentElement.dataset.fixtureState = text;
+      }
+
+      function rerenderForm() {
+        const oldForm = document.querySelector("#rerender-form");
+        const form = document.createElement("form");
+        form.id = "rerender-form";
+        form.noValidate = true;
+        form.innerHTML = `
+          <label>Rerender trigger
+            <input type="text" name="rerender-trigger" autocomplete="off">
+          </label>
+          <label>Recovery target
+            <input type="text" name="recovery-target" autocomplete="off">
+          </label>`;
+        oldForm.replaceWith(form);
+        bindRerender(form);
+        setStatus("Unique rerender complete; the old target handles are now stale.");
+      }
+
+      function bindRerender(form) {
+        form.querySelector("[name=rerender-trigger]").addEventListener("input", (event) => {
+          if (event.target.value === RERENDER) rerenderForm();
+        });
+      }
+
+      function renderAmbiguity(duplicate) {
+        const oldForm = document.querySelector("#ambiguity-form");
+        const form = document.createElement("form");
+        form.id = "ambiguity-form";
+        form.noValidate = true;
+        form.innerHTML = `
+          <label>Reset or duplicate trigger
+            <input type="text" name="ambiguity-trigger" autocomplete="off">
+          </label>
+          ${duplicate ? `
+          <label>Ambiguous target
+            <input type="text" name="ambiguous-target" autocomplete="off">
+          </label>
+          <label>Ambiguous target
+            <input type="text" name="ambiguous-target" autocomplete="off">
+          </label>` : `
+          <label>Ambiguous target
+            <input type="text" name="ambiguous-target" autocomplete="off">
+          </label>`}`;
+        oldForm.replaceWith(form);
+        bindAmbiguity(form);
+        setStatus(duplicate
+          ? "Ambiguity created; an old-target write must not touch either duplicate."
+          : "Fixture reset; ready for the ambiguity check.");
+      }
+
+      function bindAmbiguity(form) {
+        form.querySelector("[name=ambiguity-trigger]").addEventListener("input", (event) => {
+          if (event.target.value === RESET) renderAmbiguity(false);
+          if (event.target.value === DUPLICATE) renderAmbiguity(true);
+        });
+      }
+
+      bindRerender(document.querySelector("#rerender-form"));
+      bindAmbiguity(document.querySelector("#ambiguity-form"));
+      window.__knapperFixture = Object.freeze({ RERENDER, RESET, DUPLICATE });
+
+      // Once this page has been opened and permitted, later runner processes
+      // can wake a suspended MV3 worker without browser automation. A new
+      // server token causes exactly one reload; the reloaded page then sees
+      // the current token and remains stable throughout the test.
+      setInterval(async () => {
+        try {
+          const response = await fetch("/run-token", { cache: "no-store" });
+          const token = response.ok ? await response.text() : "";
+          if (token && token !== RUN_TOKEN) location.reload();
+        } catch (_) {}
+      }, 1000);
+    })();
+  </script>
+</body>
+</html>

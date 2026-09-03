@@ -550,6 +550,7 @@ async function restoreAllMode() {
   try {
     const stored = await chrome.storage.local.get({ [ALL_MODE_KEY]: "off" });
     if (stored[ALL_MODE_KEY] !== "all") return;
+    if (allMode && port) return;
     allMode = true;
     showAll();
     if (connect()) {
@@ -561,3 +562,8 @@ async function restoreAllMode() {
 
 if (chrome.runtime.onStartup) chrome.runtime.onStartup.addListener(() => { void restoreAllMode(); });
 if (chrome.runtime.onInstalled) chrome.runtime.onInstalled.addListener(() => { void restoreAllMode(); });
+// MV3 may start a fresh worker for any registered event after its previous
+// instance was suspended. Restore persisted ALL state on evaluation so a
+// fixture reload or permitted-tab event can reconnect Native Messaging
+// without opening the popup again.
+void restoreAllMode();
