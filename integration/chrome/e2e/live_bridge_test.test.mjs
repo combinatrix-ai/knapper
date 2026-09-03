@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   controlsFrom,
+  fixtureTokenMatches,
   parseArgs,
   parseClientOutput,
   uniqueControl
@@ -41,4 +42,17 @@ test("semantic control lookup refuses missing and ambiguous targets", () => {
   assert.equal(uniqueControl(snapshot, "unique").target_id, "one");
   assert.throws(() => uniqueControl(snapshot, "missing"), /found 0/);
   assert.throws(() => uniqueControl(snapshot, "duplicate"), /found 2/);
+});
+
+test("fixture readiness requires exactly one matching run token", () => {
+  const snapshot = { forms: [{ controls: [{ name: "fixture-run-token", current_value: "current" }] }] };
+  assert.equal(fixtureTokenMatches(snapshot, "current"), true);
+  assert.equal(fixtureTokenMatches(snapshot, "old"), false);
+  assert.equal(fixtureTokenMatches({ forms: [{ controls: [] }] }, "current"), false);
+  assert.equal(fixtureTokenMatches({
+    forms: [{ controls: [
+      { name: "fixture-run-token", current_value: "current" },
+      { name: "fixture-run-token", current_value: "current" }
+    ] }]
+  }, "current"), false);
 });

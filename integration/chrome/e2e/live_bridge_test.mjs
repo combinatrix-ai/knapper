@@ -86,6 +86,11 @@ export function uniqueControl(snapshot, name) {
   return matches[0];
 }
 
+export function fixtureTokenMatches(snapshot, runToken) {
+  const matches = controlsFrom(snapshot).filter((control) => control.name === "fixture-run-token");
+  return matches.length === 1 && matches[0].current_value === runToken;
+}
+
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -203,6 +208,22 @@ async function waitForFixtureTab(client, origin, fixtureUrl, timeoutSeconds) {
   throw new Error(`${lastProblem}. Open ${fixtureUrl} in Chrome, click Knapper Fill, and choose ALL for this origin.`);
 }
 
+async function waitForFixtureReady(client, tabId, runToken, timeoutSeconds) {
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  let lastProblem = "fixture has not loaded the current run token";
+  while (Date.now() < deadline) {
+    try {
+      const current = await snapshot(client, tabId, 5);
+      if (fixtureTokenMatches(current, runToken)) return current;
+      lastProblem = "fixture is still showing a previous run token";
+    } catch (error) {
+      lastProblem = error.message;
+    }
+    await delay(250);
+  }
+  throw new Error(`${lastProblem}. Keep the permitted fixture tab open until it reloads.`);
+}
+
 async function serveFixture(port) {
   const fixturePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fixtures/bridge-fixture.html");
   const runToken = randomUUID();
@@ -242,14 +263,14 @@ async function serveFixture(port) {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", resolve);
   });
-  return server;
+  return { server, runToken };
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const origin = `http://${options.host}:${options.port}`;
   const fixtureUrl = `${origin}/bridge-fixture.html`;
-  const server = await serveFixture(options.port);
+  const { server, runToken } = await serveFixture(options.port);
   console.log(`Fixture: ${fixtureUrl}`);
   console.log("Waiting for one permitted Chrome tab. Open the URL and choose Knapper Fill > ALL once.");
 
@@ -257,7 +278,7 @@ async function main() {
     const tab = await waitForFixtureTab(options.client, origin, fixtureUrl, options.timeoutSeconds);
     console.log(`PASS tab discovery (${tab.tab_id})`);
 
-    let current = await snapshot(options.client, tab.tab_id, options.timeoutSeconds);
+    let current = await waitForFixtureReady(options.client, tab.tab_id, runToken, options.timeoutSeconds);
     const resetTrigger = uniqueControl(current, "ambiguity-trigger");
     const reset = await perform(options.client, tab.tab_id, current.document_id, [{
       op: "set_value",
