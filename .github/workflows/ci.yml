@@ -7,7 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  rust:
+    name: Rust / knapper
     runs-on: ubuntu-latest
 
     steps:
@@ -32,15 +33,45 @@ jobs:
       - name: Test
         run: cargo test
 
-      - name: Check Chrome extension
+      - name: Build release binaries
+        run: cargo build --release --bin knapper --bin knapper-chrome-host --bin knapper-chrome-client
+
+  chrome-extension:
+    name: Chrome extension
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          check-latest: false
+
+      - name: Check JavaScript
         run: |
           node --check integration/chrome/service_worker.js
           node --check integration/chrome/content_script.js
+          node --check integration/chrome/popup.js
           node --check integration/chrome/e2e/live_bridge_test.mjs
+
+      - name: Test Chrome extension
+        run: |
           node --test integration/chrome/service_worker.test.mjs
           node --test integration/chrome/e2e/live_bridge_test.test.mjs
-          python3 -m json.tool integration/chrome/manifest.json >/dev/null
-          python3 -m json.tool integration/chrome/native-host-manifest.example.json >/dev/null
 
-      - name: Build the release binary
-        run: cargo build --release
+      - name: Validate manifests
+        run: |
+          node -e 'for (const path of process.argv.slice(1)) JSON.parse(require("node:fs").readFileSync(path, "utf8"));' \
+            integration/chrome/manifest.json \
+            integration/chrome/native-host-manifest.example.json
+
+      - name: Package Chrome extension
+        run: integration/chrome/package-extension.sh dist/knapper-chrome-extension.zip
+
+      - name: Upload Chrome extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: knapper-chrome-extension
+          path: dist/knapper-chrome-extension.zip
+          if-no-files-found: error
