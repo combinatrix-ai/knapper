@@ -929,7 +929,9 @@ only typed results over its user-only Unix socket.
 `knapper-chrome-client status` reports the current mode and, for PICK, its
 origin. See
 [`integration/chrome/README.md`](integration/chrome/README.md) for installation
-and the native-host manifest.
+and the native-host manifest. That guide also includes a deterministic local
+web fixture that tests the installed extension, Native Messaging host, and CLI
+end to end without secrets or form submission.
 
 Provider commands are launched from Chrome's Native Messaging environment.
 On macOS that environment can have a narrower `PATH` than an interactive

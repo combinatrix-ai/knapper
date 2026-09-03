@@ -36,7 +36,9 @@ jobs:
         run: |
           node --check integration/chrome/service_worker.js
           node --check integration/chrome/content_script.js
+          node --check integration/chrome/e2e/live_bridge_test.mjs
           node --test integration/chrome/service_worker.test.mjs
+          node --test integration/chrome/e2e/live_bridge_test.test.mjs
           python3 -m json.tool integration/chrome/manifest.json >/dev/null
           python3 -m json.tool integration/chrome/native-host-manifest.example.json >/dev/null
 

@@ -12,7 +12,7 @@ function eventTarget() {
   };
 }
 
-function loadHarness() {
+function loadHarness({ storedMode = "off" } = {}) {
   const actionClicked = eventTarget();
   const runtimeMessages = eventTarget();
   const onStartup = eventTarget();
@@ -24,7 +24,7 @@ function loadHarness() {
   const tabs = new Map([[7, { ...TAB, active: true }]]);
   const tabList = [tabs.get(7)];
   const grantedOrigins = new Set(["https://example.test/*"]);
-  const storageState = { knapperMode: "off" };
+  const storageState = { knapperMode: storedMode };
   const actionState = { badge: null, title: null };
   let port = null;
   let disconnects = 0;
@@ -894,6 +894,7 @@ test("ALL tab updates and restore do not send unsolicited Native Message types",
     assert.equal(harness.sentNative.length, initialMessages);
     harness.storageState.knapperMode = "all";
     await harness.context.restoreAllMode();
+    assert.equal(harness.sentNative.length, initialMessages);
     assert.equal(harness.sentNative.some((message) => message.type === "tabs_update"), false);
     assert.equal(harness.sentNative.every((message) => ["hello", "mode"].includes(message.type)), true);
   } finally {
@@ -909,6 +910,18 @@ test("stored ALL mode reconnects when the worker is awakened for state", async (
     assert.equal(state.mode, "all");
     assert.equal(state.connected, true);
     assert.deepEqual(harness.sentNative.map((message) => message.type), ["hello", "mode"]);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("a fresh worker restores stored ALL mode without opening the popup", async () => {
+  const harness = loadHarness({ storedMode: "all" });
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(harness.evaluate("allMode"), true);
+    assert.deepEqual(harness.sentNative.map((message) => message.type), ["hello", "mode"]);
+    assert.equal(harness.actionState.badge, "ALL");
   } finally {
     await harness.cleanup();
   }
