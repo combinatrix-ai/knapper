@@ -206,6 +206,38 @@ over the client socket or logged.
 node --check integration/chrome/service_worker.js
 node --check integration/chrome/content_script.js
 node --check integration/chrome/popup.js
+node --check integration/chrome/e2e/live_bridge_test.mjs
 node --test integration/chrome/service_worker.test.mjs
+node --test integration/chrome/e2e/live_bridge_test.test.mjs
+node -e 'for (const path of process.argv.slice(1)) JSON.parse(require("node:fs").readFileSync(path, "utf8"));' \
+  integration/chrome/manifest.json \
+  integration/chrome/native-host-manifest.example.json
 cargo test --test chrome_bridge
 ```
+
+## Packaging
+
+Create the same Chrome-installable archive used by CI with the dependency-light
+packaging script:
+
+```sh
+integration/chrome/package-extension.sh
+```
+
+The default output is `target/knapper-chrome-extension.zip`, keeping local build
+outputs under Rust's ignored build directory. Pass a different `.zip` path as
+the first argument to override it. The script verifies that the
+archive has exactly these files at its root:
+
+```text
+manifest.json
+service_worker.js
+content_script.js
+popup.html
+popup.js
+popup.css
+```
+
+Load the resulting archive's extracted contents with Chrome's **Load unpacked**
+control. Native-host manifests, test fixtures, and E2E files are intentionally
+not part of the runtime extension archive.
