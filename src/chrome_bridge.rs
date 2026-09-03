@@ -21,9 +21,9 @@ pub const MAX_FRAME: usize = 1024 * 1024;
 pub const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 pub const MAX_TIMEOUT_MS: u64 = 120_000;
 
-/// The only request the Codex-facing client can submit.  In particular,
-/// there is no target selector and no value field: the extension uses the exact
-/// text control the user selected while accepting mode is on.
+/// A bounded request from the Codex-facing client. PICK carries only a
+/// reference and origin; ALL carries a typed form operation and temporary
+/// handles from a prior snapshot. Neither form returns a Knapper-resolved value.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ClientRequest {
@@ -35,10 +35,181 @@ pub struct ClientRequest {
     pub expected_origin: Option<String>,
     #[serde(default)]
     pub timeout_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api: Option<ApiRequest>,
 }
 
-/// Safe, model-visible result.  No provider output, command output, URI
-/// locator, or page text belongs in this structure.
+/// Background browser operations accepted from the local client while the
+/// extension is in ALL mode.  The API is form-semantic on purpose: there is no
+/// arbitrary JavaScript evaluation, CSS-selector mutation, or generic click.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum ApiRequest {
+    TabsList {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<String>,
+    },
+    FormSnapshot {
+        tab_id: i64,
+    },
+    FormPerform {
+        tab_id: i64,
+        document_id: String,
+        actions: Vec<ClientFormAction>,
+    },
+    FormSubmit {
+        tab_id: i64,
+        document_id: String,
+        form_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum ClientFormAction {
+    SetFrom {
+        target_id: String,
+        reference: String,
+    },
+    SetValue {
+        target_id: String,
+        value: String,
+    },
+    SelectOption {
+        target_id: String,
+        value: String,
+    },
+    SetChecked {
+        target_id: String,
+        checked: bool,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum NativeFormAction {
+    SetValue {
+        target_id: String,
+        value: String,
+        opaque: bool,
+    },
+    SelectOption {
+        target_id: String,
+        value: String,
+    },
+    SetChecked {
+        target_id: String,
+        checked: bool,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserTab {
+    pub tab_id: i64,
+    pub url: String,
+    pub origin: String,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FormSnapshot {
+    pub document_id: String,
+    pub tab_id: i64,
+    pub url: String,
+    pub origin: String,
+    pub forms: Vec<FormDescription>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FormDescription {
+    pub form_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    pub controls: Vec<FormControl>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FormControl {
+    pub target_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_id: Option<String>,
+    pub tag: String,
+    pub kind: String,
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub control_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_attr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autocomplete: Option<String>,
+    pub required: bool,
+    pub disabled: bool,
+    pub read_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_value: Option<String>,
+    #[serde(default)]
+    pub value_opaque: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<FormOption>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FormOption {
+    pub value: String,
+    pub label: String,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FormActionResult {
+    pub target_id: String,
+    pub op: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_returned: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ClientResult {
+    TabsList {
+        tabs: Vec<BrowserTab>,
+    },
+    FormSnapshot {
+        snapshot: FormSnapshot,
+    },
+    FormPerform {
+        document_id: String,
+        results: Vec<FormActionResult>,
+    },
+    FormSubmit {
+        document_id: String,
+        state: String,
+    },
+}
+
+/// Model-visible result. Provider output, command output, Knapper locators, and
+/// opaque field values never belong here. In ALL mode, Chrome-permitted page
+/// metadata and ordinary non-opaque field values may be returned explicitly.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ClientResponse {
@@ -50,6 +221,8 @@ pub struct ClientResponse {
     pub origin: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<ClientResult>,
 }
 
 impl ClientResponse {
@@ -60,6 +233,7 @@ impl ClientResponse {
             code: None,
             origin: Some(origin),
             mode: None,
+            result: None,
         }
     }
 
@@ -70,6 +244,7 @@ impl ClientResponse {
             code: Some(code.into()),
             origin: None,
             mode: None,
+            result: None,
         }
     }
 
@@ -80,12 +255,25 @@ impl ClientResponse {
             code: None,
             origin,
             mode: Some(mode.into()),
+            result: None,
+        }
+    }
+
+    pub fn api(request_id: String, result: ClientResult) -> Self {
+        Self {
+            status: "ok".into(),
+            request_id,
+            code: None,
+            origin: None,
+            mode: None,
+            result: Some(result),
         }
     }
 }
 
-/// Native Messaging messages.  `value` exists in exactly one direction and
-/// is private to the Chrome-owned pipe.  Never serialize this enum for the
+/// Native Messaging messages. A Knapper-resolved `value` exists only in the
+/// host-to-Chrome direction and is private to this pipe. Ordinary page metadata
+/// can travel back in a snapshot. Never serialize this enum directly for the
 /// Codex-facing Unix socket.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -126,6 +314,52 @@ pub enum NativeMessage {
         request_id: String,
     },
     FillRejected {
+        request_id: String,
+        code: String,
+    },
+    Mode {
+        mode: String,
+    },
+    TabsList {
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<String>,
+    },
+    TabsListed {
+        request_id: String,
+        tabs: Vec<BrowserTab>,
+    },
+    FormSnapshot {
+        request_id: String,
+        tab_id: i64,
+    },
+    FormSnapshotted {
+        request_id: String,
+        snapshot: FormSnapshot,
+    },
+    FormPerform {
+        request_id: String,
+        tab_id: i64,
+        document_id: String,
+        actions: Vec<NativeFormAction>,
+    },
+    FormPerformed {
+        request_id: String,
+        document_id: String,
+        results: Vec<FormActionResult>,
+    },
+    FormSubmit {
+        request_id: String,
+        tab_id: i64,
+        document_id: String,
+        form_id: String,
+    },
+    FormSubmitted {
+        request_id: String,
+        document_id: String,
+        status: String,
+    },
+    ApiRejected {
         request_id: String,
         code: String,
     },
@@ -263,6 +497,147 @@ pub fn url_matches_origin(url: &str, origin: &str) -> bool {
 
 pub fn validate_timeout(timeout_ms: u64) -> bool {
     (1..=MAX_TIMEOUT_MS).contains(&timeout_ms)
+}
+
+pub fn validate_handle(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+pub fn validate_api_request(request: &ApiRequest) -> bool {
+    match request {
+        ApiRequest::TabsList { origin } => origin.as_deref().map_or(true, validate_origin),
+        ApiRequest::FormSnapshot { tab_id } => *tab_id >= 0,
+        ApiRequest::FormPerform {
+            tab_id,
+            document_id,
+            actions,
+        } => {
+            *tab_id >= 0
+                && validate_handle(document_id)
+                && !actions.is_empty()
+                && actions.len() <= 128
+                && actions.iter().all(validate_client_action)
+        }
+        ApiRequest::FormSubmit {
+            tab_id,
+            document_id,
+            form_id,
+        } => *tab_id >= 0 && validate_handle(document_id) && validate_handle(form_id),
+    }
+}
+
+fn validate_client_action(action: &ClientFormAction) -> bool {
+    match action {
+        ClientFormAction::SetFrom {
+            target_id,
+            reference,
+        } => validate_handle(target_id) && validate_reference(reference),
+        ClientFormAction::SetValue { target_id, value } => {
+            validate_handle(target_id) && value.len() <= MAX_FRAME - 4096
+        }
+        ClientFormAction::SelectOption { target_id, value } => {
+            validate_handle(target_id) && value.len() <= 64 * 1024
+        }
+        ClientFormAction::SetChecked { target_id, .. } => validate_handle(target_id),
+    }
+}
+
+pub fn validate_client_result(result: &ClientResult) -> bool {
+    match result {
+        ClientResult::TabsList { tabs } => {
+            tabs.len() <= 512
+                && tabs.iter().all(|tab| {
+                    tab.tab_id >= 0
+                        && validate_origin(&tab.origin)
+                        && url_matches_origin(&tab.url, &tab.origin)
+                })
+        }
+        ClientResult::FormSnapshot { snapshot } => validate_snapshot(snapshot),
+        ClientResult::FormPerform {
+            document_id,
+            results,
+        } => {
+            validate_handle(document_id)
+                && !results.is_empty()
+                && results.len() <= 128
+                && results.iter().all(|result| {
+                    validate_handle(&result.target_id)
+                        && matches!(
+                            result.op.as_str(),
+                            "set_value" | "select_option" | "set_checked"
+                        )
+                        && matches!(result.status.as_str(), "verified" | "rejected")
+                        && result.code.as_deref().map_or(true, validate_code)
+                        && result.value_returned.map_or(true, |returned| !returned)
+                })
+        }
+        ClientResult::FormSubmit { document_id, state } => {
+            validate_handle(document_id) && state == "submitted"
+        }
+    }
+}
+
+pub fn validate_snapshot(snapshot: &FormSnapshot) -> bool {
+    if snapshot.tab_id < 0
+        || !validate_handle(&snapshot.document_id)
+        || !validate_origin(&snapshot.origin)
+        || !url_matches_origin(&snapshot.url, &snapshot.origin)
+        || snapshot.forms.len() > 256
+    {
+        return false;
+    }
+    let mut form_ids = std::collections::HashSet::new();
+    let mut target_ids = std::collections::HashSet::new();
+    snapshot.forms.iter().all(|form| {
+        validate_handle(&form.form_id)
+            && form_ids.insert(form.form_id.as_str())
+            && form.method.as_deref().map_or(true, bounded_text)
+            && form.action.as_deref().map_or(true, bounded_text)
+            && form.controls.len() <= 2048
+            && form.controls.iter().all(|control| {
+                control.form_id.as_deref() == Some(form.form_id.as_str())
+                    && target_ids.insert(control.target_id.as_str())
+                    && validate_control(control)
+            })
+    })
+}
+
+fn validate_control(control: &FormControl) -> bool {
+    validate_handle(&control.target_id)
+        && control.form_id.as_deref().map_or(true, validate_handle)
+        && bounded_text(&control.tag)
+        && bounded_text(&control.kind)
+        && control.control_type.as_deref().map_or(true, bounded_text)
+        && control.id_attr.as_deref().map_or(true, bounded_text)
+        && control.name.as_deref().map_or(true, bounded_text)
+        && control.label.as_deref().map_or(true, bounded_text)
+        && control.autocomplete.as_deref().map_or(true, bounded_text)
+        && (!control.value_opaque || control.current_value.is_none())
+        && control
+            .current_value
+            .as_deref()
+            .map_or(true, |value| value.len() <= MAX_FRAME - 4096)
+        && control.options.len() <= 2048
+        && control
+            .options
+            .iter()
+            .all(|option| bounded_text(&option.value) && bounded_text(&option.label))
+}
+
+fn bounded_text(value: &str) -> bool {
+    value.len() <= 16 * 1024 && !value.as_bytes().contains(&0)
+}
+
+fn validate_code(code: &str) -> bool {
+    !code.is_empty()
+        && code.len() <= 64
+        && code
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
 #[cfg(unix)]
@@ -404,6 +779,7 @@ mod tests {
             reference: "knapper://personal/address.home".into(),
             expected_origin: None,
             timeout_ms: DEFAULT_TIMEOUT_MS,
+            api: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(!json.contains("expected_origin"));
@@ -415,5 +791,67 @@ mod tests {
             r#"{"status":"filled","request_id":"request-1","value":"secret"}"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn form_api_has_no_generic_click_and_uses_page_facing_type_name() {
+        let click = r#"{"op":"form_perform","tab_id":7,"document_id":"document_1","actions":[{"op":"click","target_id":"target_1"}]}"#;
+        assert!(serde_json::from_str::<ApiRequest>(click).is_err());
+
+        let control = FormControl {
+            target_id: "target_1".into(),
+            form_id: Some("form_1".into()),
+            tag: "input".into(),
+            kind: "text".into(),
+            control_type: Some("email".into()),
+            id_attr: None,
+            name: None,
+            label: None,
+            autocomplete: None,
+            required: false,
+            disabled: false,
+            read_only: false,
+            checked: None,
+            current_value: Some("ordinary-page-value".into()),
+            value_opaque: false,
+            options: Vec::new(),
+        };
+        let json = serde_json::to_string(&control).unwrap();
+        assert!(json.contains(r#""type":"email""#));
+        assert!(!json.contains("control_type"));
+    }
+
+    #[test]
+    fn opaque_form_values_are_never_valid_snapshot_output() {
+        let snapshot = FormSnapshot {
+            document_id: "document_1".into(),
+            tab_id: 7,
+            url: "https://example.test/form".into(),
+            origin: "https://example.test".into(),
+            forms: vec![FormDescription {
+                form_id: "form_1".into(),
+                method: Some("post".into()),
+                action: Some("https://example.test/form".into()),
+                controls: vec![FormControl {
+                    target_id: "target_1".into(),
+                    form_id: Some("form_1".into()),
+                    tag: "input".into(),
+                    kind: "text".into(),
+                    control_type: Some("text".into()),
+                    id_attr: None,
+                    name: None,
+                    label: None,
+                    autocomplete: None,
+                    required: false,
+                    disabled: false,
+                    read_only: false,
+                    checked: None,
+                    current_value: Some("secret".into()),
+                    value_opaque: true,
+                    options: Vec::new(),
+                }],
+            }],
+        };
+        assert!(!validate_snapshot(&snapshot));
     }
 }

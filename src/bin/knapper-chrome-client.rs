@@ -1,33 +1,36 @@
 //! Codex-facing client for the optional Chrome external-reference bridge.
 //!
-//! The only request fields accepted here are a `knapper://` reference, an
-//! expected web origin, and a bounded timeout.  The response is status-only;
-//! the resolved value never crosses this Unix socket.
+//! PICK requests accept a `knapper://` reference and expected web origin. ALL
+//! requests accept a bounded, typed form operation on stdin. A value resolved
+//! from a Knapper reference never crosses this Unix socket.
 
 #[path = "../chrome_bridge.rs"]
 mod chrome_bridge;
 
 #[cfg(unix)]
 mod unix_client {
+    use std::io::Read;
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
     use clap::{error::ErrorKind, Parser};
 
     use super::chrome_bridge::{
-        read_json, request_id, socket_path, validate_origin, validate_reference, validate_timeout,
-        write_json, ClientRequest, ClientResponse, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS,
+        read_json, request_id, socket_path, validate_api_request, validate_client_result,
+        validate_origin, validate_reference, validate_timeout, write_json, ApiRequest,
+        ClientRequest, ClientResponse, DEFAULT_TIMEOUT_MS, MAX_FRAME, MAX_TIMEOUT_MS,
     };
 
     #[derive(Debug, Parser)]
     #[command(
         name = "knapper-chrome-client",
         version,
-        about = "Fill the user-selected Chrome text control through a local bridge"
+        about = "Use the local Knapper Chrome form bridge"
     )]
     struct Cli {
-        /// A knapper:// reference. Its value never enters this process's
-        /// stdout or stderr.
+        /// A knapper:// reference for PICK, `status`, or `api` (whose typed
+        /// ALL-mode request is read from stdin). Resolved values never enter
+        /// this process's stdout or stderr.
         reference: Option<String>,
         /// Exact expected origin, such as https://example.com:8443. If
         /// omitted, use the origin armed by the extension action.
@@ -58,7 +61,16 @@ mod unix_client {
         };
 
         if cli.reference.as_deref() == Some("status") {
+            if cli.expected_origin.is_some() || cli.timeout.is_some() {
+                return emit_error(request_id, "invalid_request", "invalid request");
+            }
             return run_status(request_id);
+        }
+        if cli.reference.as_deref() == Some("api") {
+            if cli.expected_origin.is_some() {
+                return emit_error(request_id, "invalid_request", "invalid request");
+            }
+            return run_api(request_id, cli.timeout);
         }
 
         let Some(reference) = cli.reference else {
@@ -121,6 +133,7 @@ mod unix_client {
             reference,
             expected_origin: cli.expected_origin,
             timeout_ms,
+            api: None,
         };
         if write_json(&mut stream, &request).is_err() {
             return emit_error(
@@ -216,6 +229,7 @@ mod unix_client {
             reference: String::new(),
             expected_origin: None,
             timeout_ms: 0,
+            api: None,
         };
         if write_json(&mut stream, &request).is_err() {
             return emit_error(
@@ -263,6 +277,112 @@ mod unix_client {
         )
     }
 
+    fn run_api(request_id: String, timeout: Option<f64>) -> Result<(), String> {
+        let timeout_ms = match timeout_ms(timeout.unwrap_or(DEFAULT_TIMEOUT_MS as f64 / 1000.0)) {
+            Ok(timeout_ms) => timeout_ms,
+            Err(_) => return emit_error(request_id, "invalid_request", "invalid request"),
+        };
+        let mut input = String::new();
+        if std::io::stdin()
+            .take((MAX_FRAME + 1) as u64)
+            .read_to_string(&mut input)
+            .is_err()
+            || input.is_empty()
+            || input.len() > MAX_FRAME
+        {
+            return emit_error(request_id, "invalid_request", "invalid request");
+        }
+        let api: ApiRequest = match serde_json::from_str(&input) {
+            Ok(api) if validate_api_request(&api) => api,
+            _ => return emit_error(request_id, "invalid_request", "invalid request"),
+        };
+
+        let path = match socket_path() {
+            Ok(path) => path,
+            Err(_) => {
+                return emit_error(
+                    request_id,
+                    "not_connected",
+                    "Chrome bridge is not available",
+                )
+            }
+        };
+        let mut stream = match UnixStream::connect(path) {
+            Ok(stream) => stream,
+            Err(_) => {
+                return emit_error(
+                    request_id,
+                    "not_connected",
+                    "Chrome bridge is not connected",
+                )
+            }
+        };
+        if stream
+            .set_read_timeout(Some(Duration::from_millis(timeout_ms)))
+            .is_err()
+            || stream
+                .set_write_timeout(Some(Duration::from_millis(timeout_ms)))
+                .is_err()
+        {
+            return emit_error(
+                request_id,
+                "bridge_failed",
+                "Chrome bridge request could not be started",
+            );
+        }
+        let request = ClientRequest {
+            kind: "api".into(),
+            request_id: request_id.clone(),
+            reference: String::new(),
+            expected_origin: None,
+            timeout_ms,
+            api: Some(api),
+        };
+        if write_json(&mut stream, &request).is_err() {
+            return emit_error(
+                request_id,
+                "bridge_failed",
+                "Chrome bridge request could not be sent",
+            );
+        }
+        let response: ClientResponse = match read_json(&mut stream) {
+            Ok(response) => response,
+            Err(_) => {
+                return emit_error(
+                    request_id,
+                    "bridge_failed",
+                    "Chrome bridge did not return a safe status",
+                )
+            }
+        };
+        if response.request_id != request_id {
+            return emit_error(
+                request_id,
+                "protocol_error",
+                "Chrome bridge returned an invalid status",
+            );
+        }
+        if response.status == "ok"
+            && response.code.is_none()
+            && response.origin.is_none()
+            && response.mode.is_none()
+            && response.result.as_ref().is_some_and(validate_client_result)
+        {
+            println!(
+                "{}",
+                serde_json::to_string(&response)
+                    .map_err(|_| "could not encode bridge status".to_string())?
+            );
+            return Ok(());
+        }
+        let code = response
+            .code
+            .as_deref()
+            .filter(|code| safe_code(code))
+            .unwrap_or("bridge_failed");
+        emit_error(request_id, code, "Chrome bridge API request failed")
+    }
+
     fn emit_error(request_id: String, code: &str, message: &str) -> Result<(), String> {
         let response = ClientResponse::error(request_id, code);
         println!(
@@ -284,7 +404,7 @@ mod unix_client {
     fn valid_mode(mode: &str) -> bool {
         matches!(
             mode,
-            "off" | "selecting" | "armed" | "resolving" | "filling"
+            "off" | "pick" | "all" | "selecting" | "armed" | "resolving" | "filling"
         )
     }
 

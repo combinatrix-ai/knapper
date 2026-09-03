@@ -7,12 +7,18 @@
   "permissions": [
     "activeTab",
     "nativeMessaging",
-    "scripting"
+    "scripting",
+    "storage"
   ],
   "background": {
     "service_worker": "service_worker.js"
   },
   "action": {
-    "default_title": "Knapper Fill: select a text field"
-  }
+    "default_title": "Knapper Fill: choose a mode",
+    "default_popup": "popup.html"
+  },
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
 }

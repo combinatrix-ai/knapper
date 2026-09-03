@@ -21,8 +21,9 @@ mod unix_host {
     use std::time::{Duration, Instant};
 
     use super::chrome_bridge::{
-        self, read_frame, read_json, socket_path, write_json, ClientRequest, ClientResponse,
-        NativeMessage, MAX_FRAME, MAX_TIMEOUT_MS,
+        self, read_frame, read_json, socket_path, write_json, ApiRequest, ClientFormAction,
+        ClientRequest, ClientResponse, ClientResult, NativeFormAction, NativeMessage, MAX_FRAME,
+        MAX_TIMEOUT_MS,
     };
 
     const POLL: Duration = Duration::from_millis(10);
@@ -40,6 +41,8 @@ mod unix_host {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum HostMode {
         Off,
+        Pick,
+        All,
         Selecting,
         Armed,
         Resolving,
@@ -50,6 +53,8 @@ mod unix_host {
         fn as_str(self) -> &'static str {
             match self {
                 Self::Off => "off",
+                Self::Pick => "pick",
+                Self::All => "all",
                 Self::Selecting => "selecting",
                 Self::Armed => "armed",
                 Self::Resolving => "resolving",
@@ -70,6 +75,10 @@ mod unix_host {
             request_id: String,
             value: Result<String, ResolveFailure>,
         },
+        ApiPrepared {
+            request_id: String,
+            actions: Result<Vec<NativeFormAction>, ResolveFailure>,
+        },
     }
 
     struct Pending {
@@ -84,6 +93,8 @@ mod unix_host {
         Preparing,
         Resolving,
         Filling,
+        ApiResolving,
+        ApiWaiting,
     }
 
     #[derive(Debug)]
@@ -146,11 +157,13 @@ mod unix_host {
                 .is_some_and(|item| Instant::now() >= item.deadline)
             {
                 if let Some(item) = pending.take() {
-                    mode = if context.is_some() {
-                        HostMode::Armed
-                    } else {
-                        HostMode::Off
-                    };
+                    if !matches!(item.phase, Phase::ApiResolving | Phase::ApiWaiting) {
+                        mode = if context.is_some() {
+                            HostMode::Armed
+                        } else {
+                            HostMode::Off
+                        };
+                    }
                     send_client_error(item.response, item.request.request_id, "timeout");
                 }
             }
@@ -185,6 +198,80 @@ mod unix_host {
                     }
                     return Ok(true);
                 }
+                if request.kind == "api" {
+                    let api = request.api.clone();
+                    if !request.reference.is_empty()
+                        || request.expected_origin.is_some()
+                        || !chrome_bridge::validate_timeout(request.timeout_ms)
+                        || !valid_request_id(&request.request_id)
+                        || api
+                            .as_ref()
+                            .map_or(true, |api| !chrome_bridge::validate_api_request(api))
+                    {
+                        send_client_error(envelope.response, request.request_id, "invalid_request");
+                        return Ok(true);
+                    }
+                    if *mode != HostMode::All {
+                        send_client_error(envelope.response, request.request_id, "not_ready");
+                        return Ok(true);
+                    }
+                    if pending.is_some() {
+                        send_client_error(envelope.response, request.request_id, "busy");
+                        return Ok(true);
+                    }
+                    let api = api.expect("API checked above");
+                    let request_id = request.request_id.clone();
+                    let timeout_ms = request.timeout_ms;
+                    let phase = if matches!(api, ApiRequest::FormPerform { .. }) {
+                        Phase::ApiResolving
+                    } else {
+                        Phase::ApiWaiting
+                    };
+                    *pending = Some(Pending {
+                        request,
+                        expected_origin: String::new(),
+                        response: envelope.response,
+                        deadline: Instant::now() + Duration::from_millis(timeout_ms),
+                        phase,
+                    });
+                    match api {
+                        ApiRequest::TabsList { origin } => {
+                            send_native(writer, &NativeMessage::TabsList { request_id, origin })?
+                        }
+                        ApiRequest::FormSnapshot { tab_id } => send_native(
+                            writer,
+                            &NativeMessage::FormSnapshot { request_id, tab_id },
+                        )?,
+                        ApiRequest::FormPerform {
+                            tab_id: _,
+                            document_id: _,
+                            actions,
+                        } => {
+                            let tx = events_tx.clone();
+                            thread::spawn(move || {
+                                let actions = prepare_native_actions(actions, timeout_ms);
+                                let _ = tx.send(HostEvent::ApiPrepared {
+                                    request_id,
+                                    actions,
+                                });
+                            });
+                        }
+                        ApiRequest::FormSubmit {
+                            tab_id,
+                            document_id,
+                            form_id,
+                        } => send_native(
+                            writer,
+                            &NativeMessage::FormSubmit {
+                                request_id,
+                                tab_id,
+                                document_id,
+                                form_id,
+                            },
+                        )?,
+                    }
+                    return Ok(true);
+                }
                 if request.kind != "fill"
                     || !chrome_bridge::validate_reference(&request.reference)
                     || request
@@ -193,6 +280,7 @@ mod unix_host {
                         .is_some_and(|origin| !chrome_bridge::validate_origin(origin))
                     || !chrome_bridge::validate_timeout(request.timeout_ms)
                     || !valid_request_id(&request.request_id)
+                    || request.api.is_some()
                 {
                     send_client_error(envelope.response, request.request_id, "invalid_request");
                     return Ok(true);
@@ -294,6 +382,57 @@ mod unix_host {
                     }
                 }
             }
+            HostEvent::ApiPrepared {
+                request_id,
+                actions,
+            } => {
+                let Some(item) = pending.as_mut() else {
+                    return Ok(true);
+                };
+                if item.request.request_id != request_id
+                    || !matches!(item.phase, Phase::ApiResolving)
+                {
+                    return Ok(true);
+                }
+                match actions {
+                    Ok(actions) => {
+                        let Some(ApiRequest::FormPerform {
+                            tab_id,
+                            document_id,
+                            ..
+                        }) = item.request.api.as_ref()
+                        else {
+                            return Err("invalid pending API request".into());
+                        };
+                        item.phase = Phase::ApiWaiting;
+                        send_native(
+                            writer,
+                            &NativeMessage::FormPerform {
+                                request_id,
+                                tab_id: *tab_id,
+                                document_id: document_id.clone(),
+                                actions,
+                            },
+                        )?;
+                    }
+                    Err(ResolveFailure::TimedOut) => {
+                        let item = pending.take().expect("pending item exists");
+                        send_client_error(
+                            item.response,
+                            item.request.request_id,
+                            "provider_timeout",
+                        );
+                    }
+                    Err(ResolveFailure::Failed | ResolveFailure::InvalidOutput) => {
+                        let item = pending.take().expect("pending item exists");
+                        send_client_error(
+                            item.response,
+                            item.request.request_id,
+                            "provider_failed",
+                        );
+                    }
+                }
+            }
         }
         Ok(true)
     }
@@ -308,6 +447,26 @@ mod unix_host {
     ) -> Result<bool, String> {
         match message {
             NativeMessage::Hello => send_native(writer, &NativeMessage::HelloAck)?,
+            NativeMessage::Mode { mode: announced } => match announced.as_str() {
+                "off" => {
+                    cancel_pending(pending, "mode_changed");
+                    *context = None;
+                    *mode = HostMode::Off;
+                }
+                "pick" => {
+                    cancel_pending(pending, "mode_changed");
+                    *context = None;
+                    *mode = HostMode::Pick;
+                }
+                "all" => {
+                    if *mode != HostMode::All {
+                        cancel_pending(pending, "mode_changed");
+                    }
+                    *context = None;
+                    *mode = HostMode::All;
+                }
+                _ => return Ok(false),
+            },
             NativeMessage::Selecting {
                 tab_id,
                 url,
@@ -450,14 +609,138 @@ mod unix_host {
                     }
                 }
             }
+            NativeMessage::TabsListed { request_id, tabs } => {
+                let Some(item) = pending.as_ref() else {
+                    return Ok(true);
+                };
+                let expected_origin = match item.request.api.as_ref() {
+                    Some(ApiRequest::TabsList { origin })
+                        if item.request.request_id == request_id
+                            && matches!(item.phase, Phase::ApiWaiting) =>
+                    {
+                        origin
+                    }
+                    _ => return Ok(true),
+                };
+                let result = ClientResult::TabsList { tabs };
+                let valid = chrome_bridge::validate_client_result(&result)
+                    && match (&result, expected_origin) {
+                        (ClientResult::TabsList { tabs }, Some(origin)) => {
+                            tabs.iter().all(|tab| &tab.origin == origin)
+                        }
+                        _ => true,
+                    };
+                finish_api_result(pending, request_id, result, valid);
+            }
+            NativeMessage::FormSnapshotted {
+                request_id,
+                snapshot,
+            } => {
+                let valid_request = pending.as_ref().is_some_and(|item| {
+                    item.request.request_id == request_id
+                        && matches!(item.phase, Phase::ApiWaiting)
+                        && matches!(
+                            item.request.api.as_ref(),
+                            Some(ApiRequest::FormSnapshot { tab_id }) if *tab_id == snapshot.tab_id
+                        )
+                });
+                if !valid_request {
+                    return Ok(true);
+                }
+                let result = ClientResult::FormSnapshot { snapshot };
+                let valid = chrome_bridge::validate_client_result(&result);
+                finish_api_result(pending, request_id, result, valid);
+            }
+            NativeMessage::FormPerformed {
+                request_id,
+                document_id,
+                results,
+            } => {
+                let valid_request = pending.as_ref().is_some_and(|item| {
+                    item.request.request_id == request_id
+                        && matches!(item.phase, Phase::ApiWaiting)
+                        && matches!(
+                            item.request.api.as_ref(),
+                            Some(ApiRequest::FormPerform {
+                                document_id: expected,
+                                actions,
+                                ..
+                            }) if expected == &document_id
+                                && results_match_actions(actions, &results)
+                        )
+                });
+                if !valid_request {
+                    return Ok(true);
+                }
+                let result = ClientResult::FormPerform {
+                    document_id,
+                    results,
+                };
+                let valid = chrome_bridge::validate_client_result(&result);
+                finish_api_result(pending, request_id, result, valid);
+            }
+            NativeMessage::FormSubmitted {
+                request_id,
+                document_id,
+                status,
+            } => {
+                let valid_request = pending.as_ref().is_some_and(|item| {
+                    item.request.request_id == request_id
+                        && matches!(item.phase, Phase::ApiWaiting)
+                        && matches!(
+                            item.request.api.as_ref(),
+                            Some(ApiRequest::FormSubmit { document_id: expected, .. })
+                                if expected == &document_id
+                        )
+                });
+                if !valid_request {
+                    return Ok(true);
+                }
+                let result = ClientResult::FormSubmit {
+                    document_id,
+                    state: status,
+                };
+                let valid = chrome_bridge::validate_client_result(&result);
+                finish_api_result(pending, request_id, result, valid);
+            }
+            NativeMessage::ApiRejected {
+                request_id,
+                code: _,
+            } => {
+                if pending.as_ref().is_some_and(|item| {
+                    item.request.request_id == request_id
+                        && matches!(item.phase, Phase::ApiResolving | Phase::ApiWaiting)
+                }) {
+                    let item = pending.take().expect("pending item exists");
+                    send_client_error(item.response, item.request.request_id, "api_rejected");
+                }
+            }
             // These are host-originated messages.  Receiving them is a
             // protocol violation; terminate rather than guessing state.
             NativeMessage::HelloAck
             | NativeMessage::Armed
             | NativeMessage::PrepareFill { .. }
-            | NativeMessage::Fill { .. } => return Ok(false),
+            | NativeMessage::Fill { .. }
+            | NativeMessage::TabsList { .. }
+            | NativeMessage::FormSnapshot { .. }
+            | NativeMessage::FormPerform { .. }
+            | NativeMessage::FormSubmit { .. } => return Ok(false),
         }
         Ok(true)
+    }
+
+    fn finish_api_result(
+        pending: &mut Option<Pending>,
+        request_id: String,
+        result: ClientResult,
+        valid: bool,
+    ) {
+        let item = pending.take().expect("API pending item exists");
+        if valid {
+            send_client_response(item.response, ClientResponse::api(request_id, result));
+        } else {
+            send_client_error(item.response, request_id, "protocol_error");
+        }
     }
 
     fn cancel_pending(pending: &mut Option<Pending>, code: &str) {
@@ -589,6 +872,74 @@ mod unix_host {
         } else {
             Err(ResolveFailure::Failed)
         }
+    }
+
+    fn prepare_native_actions(
+        actions: Vec<ClientFormAction>,
+        timeout_ms: u64,
+    ) -> Result<Vec<NativeFormAction>, ResolveFailure> {
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(MAX_TIMEOUT_MS));
+        let mut native = Vec::with_capacity(actions.len());
+        for action in actions {
+            let action = match action {
+                ClientFormAction::SetFrom {
+                    target_id,
+                    reference,
+                } => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        return Err(ResolveFailure::TimedOut);
+                    }
+                    NativeFormAction::SetValue {
+                        target_id,
+                        value: resolve_value(&reference, remaining.as_millis().max(1) as u64)?,
+                        opaque: true,
+                    }
+                }
+                ClientFormAction::SetValue { target_id, value } => NativeFormAction::SetValue {
+                    target_id,
+                    value,
+                    opaque: false,
+                },
+                ClientFormAction::SelectOption { target_id, value } => {
+                    NativeFormAction::SelectOption { target_id, value }
+                }
+                ClientFormAction::SetChecked { target_id, checked } => {
+                    NativeFormAction::SetChecked { target_id, checked }
+                }
+            };
+            native.push(action);
+        }
+        if serde_json::to_vec(&native)
+            .map_err(|_| ResolveFailure::InvalidOutput)?
+            .len()
+            > MAX_VALUE
+        {
+            return Err(ResolveFailure::InvalidOutput);
+        }
+        Ok(native)
+    }
+
+    fn results_match_actions(
+        actions: &[ClientFormAction],
+        results: &[chrome_bridge::FormActionResult],
+    ) -> bool {
+        actions.len() == results.len()
+            && actions.iter().zip(results).all(|(action, result)| {
+                let (target_id, op) = match action {
+                    ClientFormAction::SetFrom { target_id, .. }
+                    | ClientFormAction::SetValue { target_id, .. } => {
+                        (target_id.as_str(), "set_value")
+                    }
+                    ClientFormAction::SelectOption { target_id, .. } => {
+                        (target_id.as_str(), "select_option")
+                    }
+                    ClientFormAction::SetChecked { target_id, .. } => {
+                        (target_id.as_str(), "set_checked")
+                    }
+                };
+                result.target_id == target_id && result.op == op
+            })
     }
 
     fn resolve_value(reference: &str, timeout_ms: u64) -> Result<String, ResolveFailure> {

@@ -1,67 +1,117 @@
-# Knapper Chrome fill bridge
+# Knapper Chrome integration
 
-This Manifest V3 extension turns one user-selected text control into a narrow,
-local write-only target for `knapper://` external references. It uses
-`activeTab`, `scripting`, and Native Messaging; it does not request broad host
-access or the Chrome debugger permission.
+This Manifest V3 extension gives a local Knapper Native Messaging host a
+narrow, write-oriented browser bridge. The extension uses `activeTab`,
+`scripting`, `nativeMessaging`, and `storage`; `ALL` uses Chrome's optional
+host-permission store for the exact origins the user has granted. It does not
+use `debugger` or a custom origin allowlist.
 
-## Workflow
+## Modes
 
-1. Open the target page and click the Knapper Fill extension action. A
-   three-minute, tab-bound selection session starts immediately and the badge
-   changes to **…**. The worker injects `content_script.js` into that document's
-   isolated world; it is guarded so repeated injections do not duplicate
-   listeners.
-2. Click one visible editable text-like `input` or `textarea` on the page. The
-   badge changes to **ON** and the host receives only the tab/origin/document
-   metadata for the armed session.
-3. Run:
+The toolbar action opens a small mode picker:
+
+- **OFF** disconnects Native Messaging and clears the temporary PICK target.
+- **PICK** retains the original `activeTab` workflow. The worker binds one
+  session to the current tab, origin, and document URL, then waits for a click
+  on a visible editable `text`, `email`, `tel`, `search`, or `url` input, or a
+  `textarea`. After a successful fill, the target reference is discarded and
+  PICK waits for a fresh field click. Navigation, tab close, Esc, or three
+  minutes of inactivity turns it off.
+- **ALL** asks Chrome for the current page's exact origin pattern (for example,
+  `https://example.test/*`). If granted, ALL is persisted in `chrome.storage`
+  and the Native Messaging connection stays available for permitted background
+  tabs. Chrome's permission store is the only source of truth for which tabs
+  are visible.
+
+The popup sends `set_mode` messages to the worker; it never handles resolved
+values.
+
+## Background API
+
+In ALL mode, the host may request:
+
+```text
+tabs_list       { request_id, origin? }
+form_snapshot   { request_id, tab_id }
+form_perform    { request_id, tab_id, document_id, actions }
+form_submit     { request_id, tab_id, document_id, form_id }
+```
+
+Responses are typed results:
+
+```text
+tabs_listed       { request_id, tabs: [{ tab_id, url, origin, active }] }
+form_snapshotted  { request_id, snapshot }
+form_performed    { request_id, document_id, results }
+form_submitted    { request_id, document_id, status: "submitted" }
+api_rejected      { request_id, code }
+```
+
+The local client reads one request JSON object from stdin and prints one typed
+response JSON object:
+
+```sh
+printf '%s' '{"op":"tabs_list","origin":"https://example.test"}' |
+  knapper-chrome-client api
+printf '%s' '{"op":"form_snapshot","tab_id":41}' |
+  knapper-chrome-client api
+printf '%s' '{"op":"form_perform","tab_id":41,"document_id":"document_1","actions":[{"op":"set_from","target_id":"target_1","reference":"knapper://personal/address.home"},{"op":"select_option","target_id":"target_2","value":"jp"},{"op":"set_checked","target_id":"target_3","checked":true}]}' |
+  knapper-chrome-client api
+```
+
+`set_from` is resolved inside the Native Messaging host and becomes an opaque
+`set_value` on the Chrome-owned pipe. Literal `set_value` is also available for
+non-secret input. `form_submit` is deliberately a separate request; its
+`submitted` result only means the browser dispatched submission, not that the
+remote service accepted it.
+
+`form_snapshot` returns a temporary `document_id`, a string `form_id` for
+every form (including a non-submit-capable pseudo-form for controls outside a
+form), and temporary `target_id` values. Controls carry semantic metadata such
+as `type`, `tag`, `name`, `label`, `required`, `disabled`, `read_only`, and
+`checked`; select options are `{ value, label, selected }`. Target references
+are held only in the isolated content script and are invalidated by DOM
+mutation, detach, or navigation. A stale target or document is rejected.
+
+The only background actions are:
+
+```text
+set_value     { target_id, value, opaque? }
+select_option { target_id, value }
+set_checked   { target_id, checked }
+```
+
+There is no generic click operation. Submission is only possible through the
+explicit `form_submit` request and a previously snapshotted real `form_id`.
+Hidden controls may be set, but their current value is never included in a
+snapshot. When the host marks a value `opaque: true` (the Knapper-resolved
+path), all current values in that document are conservatively omitted from
+later snapshots. This also prevents a framework rerender from copying an
+opaque value into a replacement element and making it readable. Resolved
+values are never echoed in any response, badge, title, log, or local-client
+result.
+
+## PICK client workflow
+
+1. Open an HTTP(S) page and choose **PICK** in the extension popup.
+2. Click one eligible text field. The action badge changes from **…** to
+   **ON**.
+3. Run the local client with a `knapper://` reference:
 
    ```sh
    knapper-chrome-client knapper://personal/address.home \
      --expected-origin https://example.test
    ```
 
-   At any point during the session, inspect its safe state without resolving a
-   reference or exposing the page URL:
-
-   ```sh
-   knapper-chrome-client status
-   ```
-
-   The JSON response contains only the mode (`selecting`, `armed`, `resolving`,
-   or `filling`) and origin. With no active extension session, the client emits
-   a one-line `not_connected` JSON error and exits non-zero.
-
-4. While that tab, URL, and selected element remain valid, the request fills
-   that one element without a per-request approval popup. The client receives
-   status-only JSON; it never receives the resolved value.
-5. After a successful fill, the selected element reference is discarded, the
-   badge returns to **…**, and the same session waits for the next text-field
-   click. The extension action does not need to be pressed again between
-   fields. Each fill therefore requires a fresh click, and the same element
-   cannot be filled twice accidentally.
-6. Click the extension action again to turn the capability off. Pressing Esc,
-   a three-minute period without activity, reloading/navigating, or closing the
-   tab also turns it off. The native connection is disconnected when the
-   session ends.
-
-The local caller cannot supply a CSS selector. The target is the exact element
-the user clicked in Chrome, held only by the isolated content script. No
-`data-*` marker, selector, value, or control DOM is placed in the page. Fills
-are limited to visible, enabled, non-readonly `input` elements of type `text`,
-`email`, `tel`, `search`, or `url`, plus `textarea`. Passwords, hidden
-controls, selects, checkboxes, radios, file inputs, buttons, and contenteditable
-elements are rejected. A fill dispatches `input` and `change`; it never clicks,
-presses Enter, submits, navigates, or reads a field value. Content-script
-responses contain only safe status/error codes and a bounded control
-descriptor; values are checked for retention inside the isolated world and are
-never returned.
+4. The client receives one-line status JSON only. No approval popup is needed
+   per field, and no form is submitted automatically.
+5. Click the next text field and repeat. The extension action does not need to
+   be pressed between fields.
 
 ## Development installation
 
-1. Build and install the three binaries where the Native Messaging host can
-   find `knapper` beside `knapper-chrome-host`:
+1. Build the binaries so the Native Messaging host can find `knapper` beside
+   `knapper-chrome-host`:
 
    ```sh
    cargo build --release --bin knapper --bin knapper-chrome-host --bin knapper-chrome-client
@@ -69,16 +119,16 @@ never returned.
 
    Provider commands run from Chrome's Native Messaging environment, whose
    `PATH` may be narrower than an interactive shell's on macOS. Configure an
-   absolute executable path when the command is installed outside the system
-   paths, for example:
+   absolute executable path when needed, for example:
 
    ```console
    knapper provider set personal -- /opt/homebrew/bin/op read 'op://Knapper/{locator}'
    ```
 
 2. Open `chrome://extensions`, enable **Developer mode**, choose **Load
-   unpacked**, and select this `integration/chrome/` directory. `manifest.json`
-   fixes the unpacked extension ID as `deebiomaecdepcdgeedbohdedkhnflkc`.
+   unpacked**, and select this `integration/chrome/` directory. The fixed
+   development key gives the extension ID
+   `deebiomaecdepcdgeedbohdedkhnflkc`.
 3. Copy `native-host-manifest.example.json`, replacing its `path` with the
    absolute path to `knapper-chrome-host`.
 4. Install that manifest as Chrome's per-user Native Messaging manifest. On
@@ -90,15 +140,17 @@ never returned.
 
    Name the file `com.knapper.chrome.json`.
 
-The manifest allowlist must keep the extension ID above. The native host owns
-a mode-0700 runtime directory and a user-only Unix socket. Provider output is
-carried only from `knapper resolve` through the host and Chrome Native
-Messaging; it is never returned over the client socket or logged.
+The native host manifest must keep the extension ID above. The host owns a
+mode-0700 runtime directory and a user-only Unix socket. The resolved value is
+carried only on the Chrome-owned Native Messaging pipe and is never returned
+over the client socket or logged.
 
 ## Verification
 
 ```sh
 node --check integration/chrome/service_worker.js
+node --check integration/chrome/content_script.js
+node --check integration/chrome/popup.js
 node --test integration/chrome/service_worker.test.mjs
 cargo test --test chrome_bridge
 ```

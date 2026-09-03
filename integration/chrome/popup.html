@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Knapper Fill</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow">KNAPPER FILL</div>
+      <h1>Browser input</h1>
+      <p id="status" role="status">Checking mode…</p>
+    </header>
+    <div class="modes" role="group" aria-label="Knapper Fill mode">
+      <button type="button" data-mode="off">OFF<span>Disconnect</span></button>
+      <button type="button" data-mode="pick">PICK<span>Choose one field</span></button>
+      <button type="button" data-mode="all">ALL<span>Allowed origins</span></button>
+    </div>
+    <p class="note">ALL asks Chrome for access to this page's exact origin. Chrome's permission store is the only origin allowlist.</p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

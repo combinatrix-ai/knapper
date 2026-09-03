@@ -466,22 +466,43 @@ including the wait for provider stdout to close; a provider remains responsible
 for any further processes it starts.
 
 For a browser form fill, **do not call `resolve` and copy its stdout through
-the agent**. When the optional Chrome bridge is installed, click its action once
-to start selection immediately, then click the intended visible text control.
-While the extension badge says `ON`, run:
+the agent**. The optional Chrome bridge has two enabled modes. In **PICK**, the
+user chooses the intended visible text control and the extension badge says
+`ON`; run:
 
 ```bash
 knapper-chrome-client "knapper://personal/address.nihonbashi_kobunacho" \
   --expected-origin https://example.com
 ```
 
-The selected tab and control accept matching local requests until the user
-clicks the action again, reloads, navigates, or closes the tab. A second action
-click also cancels an in-progress selection. The local caller cannot supply a
-selector. The resolved value crosses only Chrome's Native
-Messaging pipe; the client receives status JSON and the extension never
-clicks or submits the form. Never fall back to raw `resolve`, a temporary file,
-or the clipboard when the bridge is absent, disconnected, navigated, or
+The selected tab and control accept matching local requests until PICK is
+turned off, reloaded, navigated, closed, or times out. The local caller cannot
+supply a selector.
+
+In **ALL**, Chrome's own site permissions define which origins the extension
+may access. Use the typed API without Computer Use or foregrounding Chrome:
+
+```bash
+printf '%s' '{"op":"tabs_list","origin":"https://example.com"}' |
+  knapper-chrome-client api
+printf '%s' '{"op":"form_snapshot","tab_id":419}' |
+  knapper-chrome-client api
+printf '%s' '{"op":"form_perform","tab_id":419,"document_id":"document_1","actions":[{"op":"set_from","target_id":"target_1","reference":"knapper://personal/address.nihonbashi_kobunacho"}]}' |
+  knapper-chrome-client api
+```
+
+Choose temporary targets from the snapshot's semantic metadata. If a
+`document_id` or `target_id` is stale, snapshot again; never invent or retain
+one across navigation. Allowed operations are `set_from`, `set_value`,
+`select_option`, and `set_checked`. There is no generic click, CSS selector, or
+arbitrary JavaScript operation. `form_submit` is separate and must only be used
+when the user explicitly authorized submission; a successful API response means
+the browser dispatched submission, not that the remote service accepted it.
+
+A value resolved by `set_from` crosses only Chrome's Native Messaging pipe.
+The client never receives it, and later snapshots conservatively omit all
+current values in that document. Never fall back to raw `resolve`, a temporary
+file, or the clipboard when the bridge is absent, disconnected, stale, or
 rejected. Native Messaging can inherit a narrower `PATH` than an interactive
 shell on macOS, so configure an absolute provider executable path when needed.
 
