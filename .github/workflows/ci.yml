@@ -32,5 +32,13 @@ jobs:
       - name: Test
         run: cargo test
 
+      - name: Check Chrome extension
+        run: |
+          node --check integration/chrome/service_worker.js
+          node --check integration/chrome/content_script.js
+          node --test integration/chrome/service_worker.test.mjs
+          python3 -m json.tool integration/chrome/manifest.json >/dev/null
+          python3 -m json.tool integration/chrome/native-host-manifest.example.json >/dev/null
+
       - name: Build the release binary
         run: cargo build --release

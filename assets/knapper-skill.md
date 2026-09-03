@@ -465,6 +465,26 @@ There is no default timeout. `--timeout SECS` bounds the whole resolve,
 including the wait for provider stdout to close; a provider remains responsible
 for any further processes it starts.
 
+For a browser form fill, **do not call `resolve` and copy its stdout through
+the agent**. When the optional Chrome bridge is installed, click its action once
+to start selection immediately, then click the intended visible text control.
+While the extension badge says `ON`, run:
+
+```bash
+knapper-chrome-client "knapper://personal/address.nihonbashi_kobunacho" \
+  --expected-origin https://example.com
+```
+
+The selected tab and control accept matching local requests until the user
+clicks the action again, reloads, navigates, or closes the tab. A second action
+click also cancels an in-progress selection. The local caller cannot supply a
+selector. The resolved value crosses only Chrome's Native
+Messaging pipe; the client receives status JSON and the extension never
+clicks or submits the form. Never fall back to raw `resolve`, a temporary file,
+or the clipboard when the bridge is absent, disconnected, navigated, or
+rejected. Native Messaging can inherit a narrower `PATH` than an interactive
+shell on macOS, so configure an absolute provider executable path when needed.
+
 Provider commands live in `$XDG_CONFIG_HOME/knapper/providers.yaml`
 (`~/.config/knapper/providers.yaml` by default), never in the vault:
 

@@ -64,8 +64,11 @@ jobs:
             cp "target/${{ matrix.target }}/release/knapper.exe" dist/knapper/
           else
             cp "target/${{ matrix.target }}/release/knapper" dist/knapper/
+            cp "target/${{ matrix.target }}/release/knapper-chrome-host" dist/knapper/
+            cp "target/${{ matrix.target }}/release/knapper-chrome-client" dist/knapper/
           fi
           cp README.md LICENSE dist/knapper/
+          cp -R integration/chrome dist/knapper/chrome-extension
           cd dist
           if [ "${{ runner.os }}" = "Windows" ]; then
             7z a "$name.zip" knapper
