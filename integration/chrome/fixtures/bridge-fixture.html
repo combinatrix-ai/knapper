@@ -17,7 +17,14 @@
     section p { margin: 0 0 14px; color: #53635a; font-size: .93rem; }
     label { display: block; margin-top: 12px; font-weight: 600; }
     input { display: block; box-sizing: border-box; width: 100%; margin-top: 5px; padding: 9px 10px; border: 1px solid #87988c; border-radius: 6px; font: inherit; }
+    textarea, select { display: block; box-sizing: border-box; width: 100%; margin-top: 5px; padding: 9px 10px; border: 1px solid #87988c; border-radius: 6px; font: inherit; background: white; }
+    textarea { min-height: 88px; resize: vertical; }
+    input[type="checkbox"], input[type="radio"] { display: inline-block; width: auto; margin: 0 6px 0 0; padding: 0; }
     input:focus { outline: 3px solid #b9e2c4; outline-offset: 1px; border-color: #18794e; }
+    textarea:focus, select:focus { outline: 3px solid #b9e2c4; outline-offset: 1px; border-color: #18794e; }
+    fieldset { margin: 14px 0 0; padding: 0; border: 0; }
+    legend { padding: 0; font-weight: 600; }
+    .choice { margin-top: 8px; font-weight: 400; }
     code { font-size: .88em; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   </style>
@@ -55,6 +62,69 @@
           </label>
         </form>
       </section>
+
+      <section aria-labelledby="input-matrix-heading">
+        <h2 id="input-matrix-heading">Input matrix</h2>
+        <p>Every value is fixed and non-secret. The runner never submits this form.</p>
+        <form id="input-matrix-form" novalidate>
+          <label>Notes
+            <textarea name="notes" rows="3"></textarea>
+          </label>
+          <label>Email
+            <input type="email" name="email" autocomplete="off">
+          </label>
+          <label>Telephone
+            <input type="tel" name="telephone" autocomplete="off">
+          </label>
+          <label>Quantity
+            <input type="number" name="quantity" min="0" max="100" step="1" autocomplete="off">
+          </label>
+          <label>Password
+            <input type="password" name="password" autocomplete="off">
+          </label>
+          <label>Birth date
+            <input type="date" name="birth-date" autocomplete="off">
+          </label>
+          <label>Country
+            <select name="country">
+              <option value="">Choose a country</option>
+              <option value="jp">Japan</option>
+              <option value="us">United States</option>
+            </select>
+          </label>
+          <label class="choice"><input type="checkbox" name="terms">Agree to the test terms</label>
+          <fieldset>
+            <legend>Preferred contact</legend>
+            <label class="choice"><input type="radio" name="contact-preference" value="email">Contact by email</label>
+            <label class="choice"><input type="radio" name="contact-preference" value="phone">Contact by phone</label>
+          </fieldset>
+          <fieldset>
+            <legend>Date of birth</legend>
+            <label>Year
+              <select name="dob-year">
+                <option value="">Choose year</option>
+                <option value="2003">2003</option>
+                <option value="2004">2004</option>
+              </select>
+            </label>
+            <label>Month
+              <select name="dob-month">
+                <option value="">Choose month</option>
+                <option value="01">January</option>
+                <option value="02">February</option>
+              </select>
+            </label>
+            <label>Day
+              <select name="dob-day">
+                <option value="">Choose day</option>
+              </select>
+            </label>
+            <label>Calendar updates observed
+              <input type="text" name="dob-change-count" value="0" readonly autocomplete="off">
+            </label>
+          </fieldset>
+        </form>
+      </section>
     </div>
 
     <p class="sr-only" id="fixture-contract">Fixture contract: no submission, no external requests, fixed literal values only.</p>
@@ -67,11 +137,37 @@
       const RERENDER = "fixture-rerender-now";
       const RESET = "fixture-reset";
       const DUPLICATE = "fixture-create-duplicates";
+      const matrixForm = document.querySelector("#input-matrix-form");
+      const dobYear = matrixForm.querySelector("[name=dob-year]");
+      const dobMonth = matrixForm.querySelector("[name=dob-month]");
+      const dobDay = matrixForm.querySelector("[name=dob-day]");
+      const dobChangeCount = matrixForm.querySelector("[name=dob-change-count]");
+      let dobChanges = 0;
 
       function setStatus(text) {
         status.textContent = text;
         document.documentElement.dataset.fixtureState = text;
       }
+
+      function renderDobDays() {
+        const previousDay = dobDay.value;
+        const year = Number(dobYear.value);
+        const month = Number(dobMonth.value);
+        const maxDay = year && month ? new Date(year, month, 0).getDate() : 31;
+        dobDay.replaceChildren(new Option("Choose day", ""));
+        for (let day = 1; day <= maxDay; day += 1) {
+          const value = String(day).padStart(2, "0");
+          dobDay.append(new Option(String(day), value));
+        }
+        if (previousDay && Number(previousDay) <= maxDay) dobDay.value = previousDay;
+        else dobDay.value = "";
+        dobChanges += 1;
+        dobChangeCount.value = String(dobChanges);
+      }
+
+      dobYear.addEventListener("change", renderDobDays);
+      dobMonth.addEventListener("change", renderDobDays);
+      renderDobDays();
 
       function rerenderForm() {
         const oldForm = document.querySelector("#rerender-form");

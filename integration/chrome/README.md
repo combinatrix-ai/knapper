@@ -121,6 +121,14 @@ for the local origin. The rest is automatic. It uses only fixed, non-secret
 literal values and never submits a form. It verifies:
 
 - exact-origin tab discovery through the real CLI;
+- a live input matrix covering `textarea`, `email`, `tel`, `number`, native
+  `date`, and `password` (including the absence of `current_value` for
+  password and retained ISO date value);
+- ordinary `select`, checkbox, and radio writes, with their kinds, options,
+  selected values, and checked state read back from a fresh snapshot;
+- dependent date-of-birth year/month/day selects, including a `change`-driven
+  leap-day rerender (`2004-02-29` becomes invalid after changing to
+  `2003-02`);
 - one successful same-document stale-target remap with the original
   `target_id` in the result;
 - `ambiguous_target` for a duplicate semantic target; and
