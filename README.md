@@ -887,20 +887,43 @@ timed out, or returned nothing usable.
 
 ### Chrome fill bridge
 
-The optional `integration/chrome/` package lets an agent ask Chrome to fill one
-user-selected web text control without returning the resolved value to the
-agent process. Click the extension action once to start a three-minute,
-tab-bound selection session, then click one visible editable text-like input.
-After each successful
-`knapper-chrome-client knapper://... --expected-origin https://example.com`
-request, the selected element is discarded and the session waits for another
-field click; the extension action does not need to be pressed between fields.
-Clicking the action again, reloading, navigating, closing the tab, or letting
-the session expire turns the mode off. The local caller cannot supply a CSS
-selector, and the extension never clicks or submits. The Native Messaging host
-keeps the value on Chrome's pipe and returns status-only JSON over its user-only
-Unix socket. `knapper-chrome-client status` reports only the safe session mode
-and origin. See
+The optional `integration/chrome/` package exposes three modes from its action
+popup. **OFF** disconnects the bridge. **PICK** is the narrow, three-minute
+workflow: click a text field, then run
+`knapper-chrome-client knapper://... --expected-origin https://example.com`.
+Each successful fill discards that exact element and waits for the next manual
+field click.
+
+**ALL** is an explicit background form API. Chrome asks for access to the
+active page's exact origin; Chrome's own site-permission store is the allowlist.
+The permission and mode persist until the user turns ALL off, revokes the site
+permission, or closes Chrome. An agent can list permitted tabs, snapshot form
+metadata, and perform semantic form operations without bringing Chrome to the
+front:
+
+```sh
+printf '%s' '{"op":"tabs_list","origin":"https://example.com"}' |
+  knapper-chrome-client api
+printf '%s' '{"op":"form_snapshot","tab_id":419}' |
+  knapper-chrome-client api
+printf '%s' '{"op":"form_perform","tab_id":419,"document_id":"document_1","actions":[{"op":"set_from","target_id":"target_1","reference":"knapper://personal/address.home"}]}' |
+  knapper-chrome-client api
+```
+
+Snapshot `document_id`, `form_id`, and `target_id` values are temporary and
+become stale after navigation or relevant DOM changes. The API has no generic
+click, arbitrary JavaScript, or CSS-selector operation. It supports
+`set_from`, literal `set_value`, `select_option`, and `set_checked`; form
+submission is a separate explicit `form_submit` request. A value resolved by
+`set_from` remains write-only: later snapshots conservatively omit all current
+values in that document, including through framework rerenders. Before an
+opaque write, ALL can return ordinary page values, so it is intentionally
+limited to origins the user granted in Chrome.
+
+The Native Messaging host keeps resolved values on Chrome's pipe and returns
+only typed results over its user-only Unix socket.
+`knapper-chrome-client status` reports the current mode and, for PICK, its
+origin. See
 [`integration/chrome/README.md`](integration/chrome/README.md) for installation
 and the native-host manifest.
 
@@ -936,6 +959,7 @@ shell, so use an absolute executable path (for example
 | `knapper resolve REF` | Read one reference's value through its provider's command |
 | `knapper-chrome-client REF --expected-origin ORIGIN` | Fill the text control selected in Chrome without returning the value |
 | `knapper-chrome-client status` | Report the Chrome fill session mode and origin without returning a value or page URL |
+| `knapper-chrome-client api` | Read one typed ALL-mode form API request from stdin and return one JSON result |
 | `knapper provider list / set / remove` | Configure those commands, outside the vault |
 | `knapper skill` | Print the embedded agent skill, or `--install` it |
 | `knapper self-update` | Replace this binary with the newest release |

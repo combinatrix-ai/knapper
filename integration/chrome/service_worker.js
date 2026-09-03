@@ -1,17 +1,21 @@
 /* global chrome */
 
-// Knapper Fill is a deliberately narrow, write-only browser capability. A
-// session is fixed to the tab, origin, and document URL that were current when
-// the extension action was pressed. The isolated content script keeps the
-// actual element reference; this worker only sends commands to that script.
+// Knapper Fill keeps browser access in this worker and keeps DOM references in
+// the isolated content script. PICK is an activeTab, one-document session;
+// ALL is persistent but can only see origins granted by Chrome's optional host
+// permission store. Resolved values travel only on the Native Messaging pipe
+// and are never returned in any worker response.
 const HOST_NAME = "com.knapper.chrome";
-const DEFAULT_TITLE = "Knapper Fill: select a text field";
+const ALL_MODE_KEY = "knapperMode";
+const DEFAULT_TITLE = "Knapper Fill: choose a mode";
 const SESSION_TTL_MS = 3 * 60 * 1000;
+const MAX_ACTIONS = 128;
 
 let port = null;
 let session = null;
 let pending = null;
 let sessionTimer = null;
+let allMode = false;
 
 function webContext(tab) {
   if (!tab || typeof tab.id !== "number" || typeof tab.url !== "string") return null;
@@ -24,6 +28,14 @@ function webContext(tab) {
   }
 }
 
+function originPattern(origin) {
+  return `${origin}/*`;
+}
+
+function validRequestId(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 128 && /^[A-Za-z0-9_-]+$/.test(value);
+}
+
 function validReference(reference) {
   if (typeof reference !== "string" || reference.length > 4096) return false;
   const match = /^knapper:\/\/([a-z0-9][a-z0-9_-]*)\/([A-Za-z0-9][A-Za-z0-9._/-]{0,127})$/.exec(reference);
@@ -33,10 +45,7 @@ function validReference(reference) {
 
 function sameContext(left, right) {
   return Boolean(
-    left && right &&
-    left.tabId === right.tabId &&
-    left.url === right.url &&
-    left.origin === right.origin
+    left && right && left.tabId === right.tabId && left.url === right.url && left.origin === right.origin
   );
 }
 
@@ -50,14 +59,19 @@ function showOff() {
   void chrome.action.setTitle({ title: DEFAULT_TITLE }).catch(() => {});
 }
 
-function showSelecting() {
-  setBadge("…", "#9a6700");
-  void chrome.action.setTitle({ title: "Knapper Fill: select a text field" }).catch(() => {});
+function showPick(state = "selecting") {
+  if (state === "armed") {
+    setBadge("ON", "#18794e");
+    void chrome.action.setTitle({ title: "Knapper Fill: PICK is armed" }).catch(() => {});
+  } else {
+    setBadge("…", "#9a6700");
+    void chrome.action.setTitle({ title: "Knapper Fill: PICK: choose a text field" }).catch(() => {});
+  }
 }
 
-function showAccepting() {
-  setBadge("ON", "#18794e");
-  void chrome.action.setTitle({ title: "Knapper Fill: accepting local input" }).catch(() => {});
+function showAll() {
+  setBadge("ALL", "#2457a6");
+  void chrome.action.setTitle({ title: "Knapper Fill: ALL mode" }).catch(() => {});
 }
 
 function touchSession() {
@@ -68,8 +82,18 @@ function touchSession() {
   }
   const id = session.id;
   sessionTimer = setTimeout(() => {
-    if (session && session.id === id) void disableSession();
+    if (session && session.id === id) void setMode("off");
   }, SESSION_TTL_MS);
+}
+
+function send(message) {
+  if (!port) return false;
+  try {
+    port.postMessage(message);
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 function connect() {
@@ -86,7 +110,9 @@ function connect() {
   connectedPort.onDisconnect.addListener(() => {
     if (port !== connectedPort) return;
     port = null;
-    void disableSession(false);
+    if (session) void disablePick(false);
+    // ALL is persistent; it will reconnect on the next wakeup or mode/status
+    // request. Do not spin a reconnect loop while Chrome is shutting down.
   });
   try {
     connectedPort.postMessage({ type: "hello" });
@@ -95,16 +121,6 @@ function connect() {
     return null;
   }
   return connectedPort;
-}
-
-function send(message) {
-  if (!port) return false;
-  try {
-    port.postMessage(message);
-    return true;
-  } catch (_) {
-    return false;
-  }
 }
 
 async function sendTabMessage(tabId, message) {
@@ -117,22 +133,14 @@ async function sendTabMessage(tabId, message) {
 
 async function ensureContentScript(tabId) {
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId, frameIds: [0] },
-      files: ["content_script.js"]
-    });
+    await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: ["content_script.js"] });
     return true;
   } catch (_) {
     return false;
   }
 }
 
-async function cancelContentScript(oldSession) {
-  if (!oldSession) return;
-  await sendTabMessage(oldSession.tabId, { type: "cancel" });
-}
-
-async function disableSession(disconnect = true) {
+async function disablePick(disconnect = true) {
   const oldSession = session;
   session = null;
   if (sessionTimer) clearTimeout(sessionTimer);
@@ -141,33 +149,119 @@ async function disableSession(disconnect = true) {
     send({ type: "target_rejected", request_id: pending.requestId, code: "accepting_disabled" });
     pending = null;
   }
-  showOff();
-  await cancelContentScript(oldSession);
-  if (disconnect && port) {
+  if (!allMode) showOff();
+  if (oldSession) await sendTabMessage(oldSession.tabId, { type: "cancel" });
+  if (disconnect && port && !allMode) {
     const oldPort = port;
     port = null;
     try { oldPort.disconnect(); } catch (_) {}
   }
 }
 
-async function selectInTab(expectedSession) {
-  if (!session || session.id !== expectedSession.id) return false;
-  const result = await sendTabMessage(expectedSession.tabId, { type: "select" });
-  if (!session || session.id !== expectedSession.id) return false;
-  if (!result || result.ok !== true) {
-    await disableSession();
+async function setStoredMode(mode) {
+  try {
+    await chrome.storage.local.set({ [ALL_MODE_KEY]: mode });
+    return true;
+  } catch (_) {
     return false;
   }
-  return true;
+}
+
+async function isGranted(origin) {
+  if (!origin || !chrome.permissions?.contains) return false;
+  try {
+    return await chrome.permissions.contains({ origins: [originPattern(origin)] });
+  } catch (_) {
+    return false;
+  }
+}
+
+async function accessibleTabs(requestOrigin = null) {
+  let tabs;
+  try {
+    tabs = await chrome.tabs.query({});
+  } catch (_) {
+    return [];
+  }
+  const result = [];
+  for (const tab of tabs) {
+    const context = webContext(tab);
+    if (!context || (requestOrigin && context.origin !== requestOrigin) || !await isGranted(context.origin)) continue;
+    result.push({ tab_id: context.tabId, url: context.url, origin: context.origin, active: Boolean(tab.active) });
+  }
+  return result;
+}
+
+async function enableAll(tabId, origin) {
+  if (!allMode || typeof tabId !== "number" || typeof origin !== "string") return;
+  if (!await isGranted(origin)) return;
+  await ensureContentScript(tabId);
+}
+
+async function enableAllForTabs() {
+  const tabs = await accessibleTabs();
+  await Promise.all(tabs.map((tab) => enableAll(tab.tab_id, tab.origin)));
+}
+
+async function enterAllMode() {
+  await disablePick();
+  allMode = true;
+  if (!await setStoredMode("all")) {
+    allMode = false;
+    showOff();
+    return { mode: "off", code: "storage_unavailable" };
+  }
+  showAll();
+  if (!connect()) return { mode: "all", code: "bridge_unavailable" };
+  send({ type: "mode", mode: "all" });
+  await enableAllForTabs();
+  return { mode: "all" };
+}
+
+async function enterPickMode(tab) {
+  if (allMode || port) await setMode("off");
+  allMode = false;
+  await setStoredMode("off");
+  return startSelection(tab);
+}
+
+async function setMode(mode, tab = null) {
+  if (mode === "off") {
+    allMode = false;
+    await setStoredMode("off");
+    if (port) send({ type: "mode", mode: "off" });
+    await disablePick();
+    if (port) {
+      const oldPort = port;
+      port = null;
+      try { oldPort.disconnect(); } catch (_) {}
+    }
+    showOff();
+    return { mode: "off" };
+  }
+  if (mode === "all") return enterAllMode();
+  if (mode === "pick") {
+    const target = tab || await activeTab();
+    if (!target) return { mode: "off", code: "no_active_tab" };
+    return enterPickMode(target);
+  }
+  return { mode: "off", code: "invalid_mode" };
+}
+
+async function activeTab() {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return tabs.length === 1 ? tabs[0] : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 async function startSelection(tab) {
   const context = webContext(tab);
-  if (!context) return { mode: "error", code: "unsupported_page" };
-
-  await disableSession();
-  if (!connect()) return { mode: "error", code: "bridge_unavailable" };
-
+  if (!context) return { mode: "off", code: "unsupported_page" };
+  await disablePick();
+  if (!connect()) return { mode: "off", code: "bridge_unavailable" };
   const next = {
     ...context,
     id: typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
@@ -177,36 +271,37 @@ async function startSelection(tab) {
   session = next;
   pending = null;
   touchSession();
-  showSelecting();
-
-  // This status is metadata-only. It lets the host expose a safe status to
-  // the local client while the user is choosing a field.
-  if (!send({ type: "selecting", tab_id: context.tabId, url: context.url, origin: context.origin })) {
-    await disableSession();
-    return { mode: "error", code: "bridge_unavailable" };
+  showPick();
+  if (!send({ type: "mode", mode: "pick" }) || !send({ type: "selecting", tab_id: context.tabId, url: context.url, origin: context.origin })) {
+    await disablePick();
+    return { mode: "off", code: "bridge_unavailable" };
   }
   if (!await ensureContentScript(context.tabId)) {
-    await disableSession();
-    return { mode: "error", code: "content_script_unavailable" };
+    await disablePick();
+    return { mode: "off", code: "content_script_unavailable" };
   }
-  if (!await selectInTab(next)) return { mode: "error", code: "selection_failed" };
-  return { mode: "selecting", origin: context.origin };
+  const selected = await sendTabMessage(context.tabId, { type: "select" });
+  if (!selected || selected.ok !== true) {
+    await disablePick();
+    return { mode: "off", code: "selection_failed" };
+  }
+  return { mode: "pick" };
 }
 
 async function armSelectedControl(message, sender) {
   if (!session || session.state !== "selecting" || sender?.tab?.id !== session.tabId) return;
   if (message.origin !== session.origin || message.url !== session.url) {
-    await disableSession();
+    await disablePick();
     return;
   }
   session.state = "armed";
   session.descriptor = typeof message.descriptor === "string" ? message.descriptor.slice(0, 160) : null;
   touchSession();
   if (!send({ type: "arm", tab_id: session.tabId, url: session.url, origin: session.origin })) {
-    await disableSession();
+    await disablePick();
     return;
   }
-  showAccepting();
+  showPick("armed");
 }
 
 async function returnToSelecting(filledSession, requestId) {
@@ -215,63 +310,111 @@ async function returnToSelecting(filledSession, requestId) {
   session.descriptor = null;
   pending = null;
   touchSession();
-  showSelecting();
-  if (!send({ type: "selecting", tab_id: session.tabId, url: session.url, origin: session.origin })) {
-    await disableSession();
+  showPick();
+  if (!send({ type: "selecting", tab_id: session.tabId, url: session.url, origin: session.origin }) || !send({ type: "filled", request_id: requestId })) {
+    await disablePick();
     return false;
   }
-  if (!send({ type: "filled", request_id: requestId })) {
-    await disableSession();
+  const selected = await sendTabMessage(session.tabId, { type: "select" });
+  if (!selected || selected.ok !== true) {
+    await disablePick();
     return false;
   }
-  return selectInTab(session);
+  return true;
 }
 
-async function handleActionClick(tab) {
-  const context = webContext(tab);
-  if (context && session && sameContext(context, session)) {
-    await disableSession();
-    return;
-  }
-  await startSelection(tab);
-}
-
-chrome.action.onClicked.addListener((tab) => { void handleActionClick(tab); });
-
-chrome.runtime.onMessage.addListener((message, sender) => {
-  if (!message || typeof message.type !== "string") return false;
-  if (message.type === "selected") {
-    void armSelectedControl(message, sender);
-    return false;
-  }
-  if (message.type === "selection_cancelled" || message.type === "selection_timeout") {
-    if (session && session.state === "selecting" && sender?.tab?.id === session.tabId) {
-      void disableSession();
+async function tabForId(tabId) {
+  try {
+    return await chrome.tabs.get(tabId);
+  } catch (_) {
+    try {
+      const tabs = await chrome.tabs.query({});
+      return tabs.find((tab) => tab.id === tabId) || null;
+    } catch (_) {
+      return null;
     }
-    return false;
   }
-  return false;
-});
+}
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (!session || tabId !== session.tabId) return;
-  if (changeInfo.status === "loading" || (typeof changeInfo.url === "string" && changeInfo.url !== session.url)) {
-    void disableSession();
-  }
-});
+async function rejectApi(requestId, code) {
+  send({ type: "api_rejected", request_id: validRequestId(requestId) ? requestId : "invalid", code });
+}
 
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (session && tabId === session.tabId) void disableSession();
-});
+async function prepareAllTab(tabId) {
+  if (!allMode || typeof tabId !== "number") return null;
+  const tab = await tabForId(tabId);
+  const context = webContext(tab);
+  if (!context || !await isGranted(context.origin)) return null;
+  if (!await ensureContentScript(tabId)) return null;
+  return context;
+}
+
+async function handleTabsList(message) {
+  if (!allMode || !validRequestId(message.request_id)) return rejectApi(message.request_id, "not_all");
+  const tabs = await accessibleTabs(typeof message.origin === "string" ? message.origin : null);
+  send({ type: "tabs_listed", request_id: message.request_id, tabs });
+}
+
+async function handleFormSnapshot(message) {
+  if (!allMode || !validRequestId(message.request_id)) return rejectApi(message.request_id, "not_all");
+  const context = await prepareAllTab(message.tab_id);
+  if (!context) return rejectApi(message.request_id, "tab_unavailable");
+  const result = await sendTabMessage(context.tabId, { type: "form_snapshot" });
+  if (!result || result.ok !== true || !result.snapshot) return rejectApi(message.request_id, result?.code || "snapshot_failed");
+  send({
+    type: "form_snapshotted",
+    request_id: message.request_id,
+    snapshot: { ...result.snapshot, tab_id: context.tabId, url: context.url, origin: context.origin }
+  });
+}
+
+function validActions(actions) {
+  const allowed = new Set(["set_value", "select_option", "set_checked"]);
+  return Array.isArray(actions) && actions.length <= MAX_ACTIONS && actions.every((action) => action && typeof action === "object" && typeof action.op === "string" && allowed.has(action.op) && typeof action.target_id === "string");
+}
+
+async function handleFormPerform(message) {
+  if (!allMode || !validRequestId(message.request_id)) return rejectApi(message.request_id, "not_all");
+  if (typeof message.document_id !== "string") return rejectApi(message.request_id, "invalid_request");
+  if (!validActions(message.actions)) return rejectApi(message.request_id, "invalid_actions");
+  const context = await prepareAllTab(message.tab_id);
+  if (!context) return rejectApi(message.request_id, "tab_unavailable");
+  const result = await sendTabMessage(context.tabId, {
+    type: "form_perform",
+    document_id: message.document_id,
+    actions: message.actions
+  });
+  if (!result || result.ok !== true) return rejectApi(message.request_id, result?.code || "perform_failed");
+  send({ type: "form_performed", request_id: message.request_id, document_id: result.document_id || message.document_id, results: result.results || [] });
+}
+
+async function handleFormSubmit(message) {
+  if (!allMode || !validRequestId(message.request_id)) return rejectApi(message.request_id, "not_all");
+  if (typeof message.document_id !== "string" || typeof message.form_id !== "string") return rejectApi(message.request_id, "invalid_request");
+  const context = await prepareAllTab(message.tab_id);
+  if (!context) return rejectApi(message.request_id, "tab_unavailable");
+  const result = await sendTabMessage(context.tabId, {
+    type: "form_submit",
+    document_id: message.document_id,
+    form_id: message.form_id
+  });
+  if (!result || result.ok !== true) return rejectApi(message.request_id, result?.code || "submit_failed");
+  send({ type: "form_submitted", request_id: message.request_id, document_id: result.document_id || message.document_id, status: "submitted" });
+}
 
 async function onNativeMessage(message) {
   if (!message || typeof message.type !== "string") return;
   if (message.type === "hello_ack" || message.type === "armed") return;
 
   if (message.type === "target_rejected" && message.request_id === "arm") {
-    await disableSession();
+    await disablePick();
     return;
   }
+
+  if (message.type === "tabs_list") return handleTabsList(message);
+  if (message.type === "form_snapshot") return handleFormSnapshot(message);
+  if (message.type === "form_perform") return handleFormPerform(message);
+  if (message.type === "form_submit") return handleFormSubmit(message);
 
   if (message.type === "prepare_fill") {
     const currentSession = session;
@@ -279,7 +422,7 @@ async function onNativeMessage(message) {
     if (
       !currentSession || currentSession.state !== "armed" ||
       message.expected_url !== currentSession.url || message.expected_origin !== currentSession.origin ||
-      typeof message.request_id !== "string" || !validReference(message.reference) ||
+      !validRequestId(message.request_id) || !validReference(message.reference) ||
       typeof message.timeout_ms !== "number" || message.timeout_ms < 1 || message.timeout_ms > 120000
     ) {
       send({ type: "target_rejected", request_id: message.request_id || "invalid", code: "not_accepting" });
@@ -293,22 +436,21 @@ async function onNativeMessage(message) {
     });
     if (!session || session.id !== currentSession.id || !targetReady || targetReady.ok !== true) {
       send({ type: "target_rejected", request_id: message.request_id, code: targetReady?.code || "target_missing" });
-      await disableSession();
+      await disablePick();
       return;
     }
     pending = { requestId: message.request_id, session: currentSession };
     if (!send({ type: "target_ready", request_id: message.request_id })) {
       pending = null;
-      await disableSession();
+      await disablePick();
     }
     return;
   }
 
   if (message.type === "fill") {
     if (
-      !pending || !session || pending.session.id !== session.id ||
-      pending.requestId !== message.request_id || typeof message.value !== "string" ||
-      message.value.length > 1024 * 1024 - 4096
+      !pending || !session || pending.session.id !== session.id || pending.requestId !== message.request_id ||
+      typeof message.value !== "string" || message.value.length > 1024 * 1024 - 4096
     ) {
       send({ type: "fill_rejected", request_id: message.request_id || "invalid", code: "not_accepted" });
       return;
@@ -324,9 +466,98 @@ async function onNativeMessage(message) {
     if (!result || result.ok !== true) {
       pending = null;
       send({ type: "fill_rejected", request_id: request.requestId, code: result?.code || "script_failed" });
-      await disableSession();
+      await disablePick();
       return;
     }
     await returnToSelecting(filledSession, request.requestId);
   }
 }
+
+chrome.action.onClicked.addListener((tab) => { void handleActionClick(tab); });
+
+async function handleActionClick(tab) {
+  const context = webContext(tab);
+  if (context && session && sameContext(context, session)) {
+    await setMode("off");
+  } else if (context && allMode) {
+    await setMode("off");
+  } else {
+    await startSelection(tab);
+  }
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || typeof message.type !== "string") return false;
+  if (message.type === "selected") {
+    void armSelectedControl(message, sender);
+    return false;
+  }
+  if (message.type === "selection_cancelled" || message.type === "selection_timeout") {
+    if (session && session.state === "selecting" && sender?.tab?.id === session.tabId) void disablePick();
+    return false;
+  }
+  if (message.type === "get_state") {
+    void getState().then((state) => sendResponse(state));
+    return true;
+  }
+  if (message.type === "set_mode") {
+    void handleSetMode(message).then(sendResponse);
+    return true;
+  }
+  return false;
+});
+
+async function getState() {
+  try {
+    const stored = await chrome.storage.local.get({ [ALL_MODE_KEY]: "off" });
+    if (stored[ALL_MODE_KEY] === "all") {
+      if (!allMode || !port) await restoreAllMode();
+    }
+  } catch (_) {}
+  return { mode: allMode ? "all" : session ? "pick" : "off", connected: Boolean(port) };
+}
+
+async function handleSetMode(message) {
+  if (message.mode === "all") {
+    const tab = await activeTab();
+    const context = webContext(tab);
+    if (!context || !await isGranted(context.origin)) return { mode: "off", code: "permission_required", origin: context?.origin };
+    return enterAllMode();
+  }
+  if (message.mode === "pick") return setMode("pick");
+  if (message.mode === "off") return setMode("off");
+  return { mode: "off", code: "invalid_mode" };
+}
+
+async function handleTabUpdate(tabId, changeInfo, tab) {
+  if (session && tabId === session.tabId && (changeInfo.status === "loading" || (typeof changeInfo.url === "string" && changeInfo.url !== session.url))) {
+    await disablePick();
+  }
+  if (allMode && tab && (changeInfo.status === "complete" || typeof changeInfo.url === "string")) {
+    const context = webContext(tab);
+    if (context && await isGranted(context.origin)) {
+      await enableAll(tabId, context.origin);
+    }
+  }
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => { void handleTabUpdate(tabId, changeInfo, tab); });
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (session && tabId === session.tabId) void disablePick();
+});
+
+async function restoreAllMode() {
+  try {
+    const stored = await chrome.storage.local.get({ [ALL_MODE_KEY]: "off" });
+    if (stored[ALL_MODE_KEY] !== "all") return;
+    allMode = true;
+    showAll();
+    if (connect()) {
+      send({ type: "mode", mode: "all" });
+      await enableAllForTabs();
+    }
+  } catch (_) {}
+}
+
+if (chrome.runtime.onStartup) chrome.runtime.onStartup.addListener(() => { void restoreAllMode(); });
+if (chrome.runtime.onInstalled) chrome.runtime.onInstalled.addListener(() => { void restoreAllMode(); });
