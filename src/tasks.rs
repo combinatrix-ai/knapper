@@ -642,10 +642,8 @@ pub fn find_tasks(config: &Config, f: &Filters) -> Result<Vec<Task>> {
             if start_range.is_some() && !in_range(&task.start_date, &start_range) {
                 continue;
             }
-            if f.available {
-                if !is_available_on(&task, today) {
-                    continue;
-                }
+            if f.available && !is_available_on(&task, today) {
+                continue;
             }
             if f.overdue {
                 match task
@@ -906,6 +904,9 @@ pub fn set_status(
 }
 
 /// Append a task to the daily note, the inbox, or a named file.
+// These arguments mirror the independent `tasks new` CLI flags. Grouping them
+// would add an internal transport type without making the command clearer.
+#[allow(clippy::too_many_arguments)]
 pub fn new_task(
     config: &Config,
     text: &str,
