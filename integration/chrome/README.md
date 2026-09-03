@@ -91,6 +91,15 @@ opaque value into a replacement element and making it readable. Resolved
 values are never echoed in any response, badge, title, log, or local-client
 result.
 
+If a `form_perform` uses a target from a previous snapshot and the target was
+detached by a same-document rerender, the content script takes exactly one
+fresh snapshot and remaps the entire batch by form identity plus
+`name`/`label`/`type` (with `tag`/`kind` as structural checks). The remap must
+be unique for every action; an ambiguous or missing target rejects the whole
+batch before any write. Navigation or a different `document_id` is never
+retried. Successful results continue to use the original requested
+`target_id` values, so callers do not need to rewrite their action list.
+
 ## PICK client workflow
 
 1. Open an HTTP(S) page and choose **PICK** in the extension popup.

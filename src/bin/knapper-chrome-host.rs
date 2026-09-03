@@ -703,16 +703,17 @@ mod unix_host {
                 let valid = chrome_bridge::validate_client_result(&result);
                 finish_api_result(pending, request_id, result, valid);
             }
-            NativeMessage::ApiRejected {
-                request_id,
-                code: _,
-            } => {
+            NativeMessage::ApiRejected { request_id, code } => {
                 if pending.as_ref().is_some_and(|item| {
                     item.request.request_id == request_id
                         && matches!(item.phase, Phase::ApiResolving | Phase::ApiWaiting)
                 }) {
                     let item = pending.take().expect("pending item exists");
-                    send_client_error(item.response, item.request.request_id, "api_rejected");
+                    send_client_error(
+                        item.response,
+                        item.request.request_id,
+                        public_api_rejection(&code),
+                    );
                 }
             }
             // These are host-originated messages.  Receiving them is a
@@ -779,6 +780,15 @@ mod unix_host {
 
     fn valid_tab_id(tab_id: i64) -> bool {
         tab_id >= 0
+    }
+
+    fn public_api_rejection(code: &str) -> &str {
+        match code {
+            "not_all" | "tab_unavailable" | "invalid_request" | "invalid_actions"
+            | "stale_document" | "stale_target" | "ambiguous_target" | "snapshot_failed"
+            | "perform_failed" | "stale_form" | "submit_failed" => code,
+            _ => "api_rejected",
+        }
     }
 
     fn spawn_native_reader(events_tx: Sender<HostEvent>) {

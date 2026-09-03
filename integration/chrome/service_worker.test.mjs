@@ -203,6 +203,7 @@ function loadContentScriptHarness() {
   const document = {
     forms: [],
     controls: [],
+    formQueryCount: 0,
     addEventListener(type, listener) {
       const listeners = documentListeners.get(type) ?? [];
       listeners.push(listener);
@@ -216,7 +217,10 @@ function loadContentScriptHarness() {
       for (const listener of [...(documentListeners.get(event.type) ?? [])]) listener(event);
     },
     querySelectorAll(selector) {
-      if (selector === "form") return this.forms;
+      if (selector === "form") {
+        this.formQueryCount += 1;
+        return this.forms;
+      }
       if (selector === "input, textarea, select") return this.controls;
       return [];
     }
@@ -283,7 +287,8 @@ function loadContentScriptHarness() {
     addControl(control) {
       document.controls.push(control);
       return control;
-    }
+    },
+    get snapshotCount() { return document.formQueryCount; }
   };
 }
 
@@ -503,9 +508,240 @@ test("content script snapshots temporary form targets and performs semantic oper
     document_id: afterOpaque.snapshot.document_id,
     actions: [{ op: "set_checked", target_id: staleTarget.target_id, checked: false }]
   });
-  assert.equal(stale.ok, true);
-  assert.equal(stale.results[0].status, "rejected");
-  assert.equal(stale.results[0].code, "stale_target");
+  assert.equal(stale.ok, false);
+  assert.equal(stale.code, "stale_target");
+});
+
+test("stale targets are remapped once after a unique same-document rerender", () => {
+  const harness = loadContentScriptHarness();
+  const oldInput = harness.input("email");
+  oldInput.setAttribute("name", "email");
+  const form = harness.form([oldInput]);
+  form.setAttribute("id", "identity-form");
+  harness.addForm(form);
+
+  const initial = harness.send({ type: "form_snapshot" });
+  const oldTarget = initial.snapshot.forms[0].controls[0].target_id;
+  const initialSnapshots = harness.snapshotCount;
+
+  const replacement = harness.input("email");
+  replacement.setAttribute("name", "email");
+  oldInput.isConnected = false;
+  form.controls = [replacement];
+  replacement.form = form;
+  harness.document.controls = [replacement];
+
+  const result = harness.send({
+    type: "form_perform",
+    document_id: initial.snapshot.document_id,
+    actions: [{ op: "set_value", target_id: oldTarget, value: "opaque replacement", opaque: true }]
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.results.length, 1);
+  assert.equal(result.results[0].target_id, oldTarget);
+  assert.equal(result.results[0].status, "verified");
+  assert.equal(replacement.assignedValue, "opaque replacement");
+  assert.equal(oldInput.assignedValue, undefined);
+  assert.equal(harness.snapshotCount, initialSnapshots + 1);
+});
+
+test("stale recovery remaps every action and returns the original target IDs", () => {
+  const harness = loadContentScriptHarness();
+  const oldText = harness.input("text");
+  oldText.setAttribute("name", "display_name");
+  const oldCheckbox = harness.input("checkbox");
+  oldCheckbox.setAttribute("name", "terms");
+  const form = harness.form([oldText, oldCheckbox]);
+  form.setAttribute("id", "identity-form");
+  harness.addForm(form);
+  const initial = harness.send({ type: "form_snapshot" });
+  const controls = initial.snapshot.forms[0].controls;
+  const oldTextTarget = controls.find((control) => control.name === "display_name").target_id;
+  const oldCheckboxTarget = controls.find((control) => control.name === "terms").target_id;
+
+  const replacementText = harness.input("text");
+  replacementText.setAttribute("name", "display_name");
+  const replacementCheckbox = harness.input("checkbox");
+  replacementCheckbox.setAttribute("name", "terms");
+  oldText.isConnected = false;
+  oldCheckbox.isConnected = false;
+  form.controls = [replacementText, replacementCheckbox];
+  replacementText.form = form;
+  replacementCheckbox.form = form;
+  harness.document.controls = [replacementText, replacementCheckbox];
+
+  const result = harness.send({
+    type: "form_perform",
+    document_id: initial.snapshot.document_id,
+    actions: [
+      { op: "set_checked", target_id: oldCheckboxTarget, checked: true },
+      { op: "set_value", target_id: oldTextTarget, value: "opaque replacement", opaque: true }
+    ]
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.results.map((entry) => entry.target_id))), [oldCheckboxTarget, oldTextTarget]);
+  assert.equal(result.results.every((entry) => entry.status === "verified"), true);
+  assert.equal(replacementCheckbox.checked, true);
+  assert.equal(replacementText.assignedValue, "opaque replacement");
+  assert.equal(replacementCheckbox.events.length, 2);
+  assert.equal(replacementText.events.length, 2);
+});
+
+test("stale recovery permits repeated actions for the same original target", () => {
+  const harness = loadContentScriptHarness();
+  const oldInput = harness.input("text");
+  oldInput.setAttribute("name", "display_name");
+  const form = harness.form([oldInput]);
+  form.setAttribute("id", "identity-form");
+  harness.addForm(form);
+  const initial = harness.send({ type: "form_snapshot" });
+  const oldTarget = initial.snapshot.forms[0].controls[0].target_id;
+
+  oldInput.isConnected = false;
+  const replacement = harness.input("text");
+  replacement.setAttribute("name", "display_name");
+  form.controls = [replacement];
+  replacement.form = form;
+  harness.document.controls = [replacement];
+
+  const result = harness.send({
+    type: "form_perform",
+    document_id: initial.snapshot.document_id,
+    actions: [
+      { op: "set_value", target_id: oldTarget, value: "first value" },
+      { op: "set_value", target_id: oldTarget, value: "second value" }
+    ]
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.results.length, 2);
+  assert.equal(result.results.every((entry) => entry.target_id === oldTarget && entry.status === "verified"), true);
+  assert.equal(replacement.assignedValue, "second value");
+  assert.deepEqual(replacement.events, ["input", "change", "input", "change"]);
+});
+
+test("ambiguous stale remaps reject the whole batch without mutating either replacement", () => {
+  const harness = loadContentScriptHarness();
+  const oldInput = harness.input("text");
+  oldInput.setAttribute("name", "display_name");
+  const form = harness.form([oldInput]);
+  form.setAttribute("id", "identity-form");
+  harness.addForm(form);
+  const initial = harness.send({ type: "form_snapshot" });
+  const oldTarget = initial.snapshot.forms[0].controls[0].target_id;
+
+  oldInput.isConnected = false;
+  const firstReplacement = harness.input("text");
+  firstReplacement.setAttribute("name", "display_name");
+  const secondReplacement = harness.input("text");
+  secondReplacement.setAttribute("name", "display_name");
+  form.controls = [firstReplacement, secondReplacement];
+  firstReplacement.form = form;
+  secondReplacement.form = form;
+  harness.document.controls = [firstReplacement, secondReplacement];
+
+  const result = harness.send({
+    type: "form_perform",
+    document_id: initial.snapshot.document_id,
+    actions: [{ op: "set_value", target_id: oldTarget, value: "must not write", opaque: true }]
+  });
+  assertVmResponse(result, { ok: false, code: "ambiguous_target" });
+  assert.equal(firstReplacement.assignedValue, undefined);
+  assert.equal(secondReplacement.assignedValue, undefined);
+});
+
+test("ambiguous form identity rejects even when only one form has the matching control", () => {
+  const harness = loadContentScriptHarness();
+  const oldInput = harness.input("text");
+  oldInput.setAttribute("name", "display_name");
+  const oldForm = harness.form([oldInput]);
+  harness.addForm(oldForm);
+  const initial = harness.send({ type: "form_snapshot" });
+  const oldTarget = initial.snapshot.forms[0].controls[0].target_id;
+
+  oldInput.isConnected = false;
+  oldForm.isConnected = false;
+  oldForm.controls = [];
+  const matchingInput = harness.input("text");
+  matchingInput.setAttribute("name", "display_name");
+  const matchingForm = harness.form([matchingInput]);
+  const otherInput = harness.input("text");
+  otherInput.setAttribute("name", "other");
+  const otherForm = harness.form([otherInput]);
+  harness.document.forms = [matchingForm, otherForm];
+  harness.document.controls = [matchingInput, otherInput];
+  matchingInput.form = matchingForm;
+  otherInput.form = otherForm;
+
+  const result = harness.send({
+    type: "form_perform",
+    document_id: initial.snapshot.document_id,
+    actions: [{ op: "set_value", target_id: oldTarget, value: "must not write", opaque: true }]
+  });
+  assertVmResponse(result, { ok: false, code: "ambiguous_target" });
+  assert.equal(matchingInput.assignedValue, undefined);
+  assert.equal(otherInput.assignedValue, undefined);
+});
+
+test("missing stale remaps reject the whole batch without mutating remaining controls", () => {
+  const harness = loadContentScriptHarness();
+  const oldInput = harness.input("text");
+  oldInput.setAttribute("name", "display_name");
+  const otherInput = harness.input("text");
+  otherInput.setAttribute("name", "other");
+  const form = harness.form([oldInput, otherInput]);
+  form.setAttribute("id", "identity-form");
+  harness.addForm(form);
+  const initial = harness.send({ type: "form_snapshot" });
+  const oldTarget = initial.snapshot.forms[0].controls.find((control) => control.name === "display_name").target_id;
+  const otherTarget = initial.snapshot.forms[0].controls.find((control) => control.name === "other").target_id;
+
+  oldInput.isConnected = false;
+  form.controls = [otherInput];
+  harness.document.controls = [otherInput];
+  const result = harness.send({
+    type: "form_perform",
+    document_id: initial.snapshot.document_id,
+    actions: [
+      { op: "set_value", target_id: oldTarget, value: "missing must not write", opaque: true },
+      { op: "set_value", target_id: otherTarget, value: "also must not write", opaque: true }
+    ]
+  });
+  assertVmResponse(result, { ok: false, code: "stale_target" });
+  assert.equal(otherInput.assignedValue, undefined);
+});
+
+test("an unknown stale target still gets one refresh, then fails safely", () => {
+  const harness = loadContentScriptHarness();
+  const input = harness.input("text");
+  input.setAttribute("name", "display_name");
+  harness.addControl(input);
+  const initial = harness.send({ type: "form_snapshot" });
+  const snapshotsBefore = harness.snapshotCount;
+  const result = harness.send({
+    type: "form_perform",
+    document_id: initial.snapshot.document_id,
+    actions: [{ op: "set_value", target_id: "target-that-never-existed", value: "must not write", opaque: true }]
+  });
+  assertVmResponse(result, { ok: false, code: "stale_target" });
+  assert.equal(harness.snapshotCount, snapshotsBefore + 1);
+  assert.equal(input.assignedValue, undefined);
+});
+
+test("stale documents are rejected before attempting a refresh", () => {
+  const harness = loadContentScriptHarness();
+  const input = harness.input("text");
+  input.setAttribute("name", "display_name");
+  harness.addControl(input);
+  const initial = harness.send({ type: "form_snapshot" });
+  const snapshotsBefore = harness.snapshotCount;
+  const result = harness.send({
+    type: "form_perform",
+    document_id: "different-document",
+    actions: [{ op: "set_value", target_id: initial.snapshot.forms[0].controls[0]?.target_id || "missing", value: "must not write", opaque: true }]
+  });
+  assertVmResponse(result, { ok: false, code: "stale_document" });
+  assert.equal(harness.snapshotCount, snapshotsBefore);
+  assert.equal(input.assignedValue, undefined);
 });
 
 test("the extension action starts one tab-bound selecting session", async () => {
