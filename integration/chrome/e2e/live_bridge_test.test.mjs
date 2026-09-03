@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   controlsFrom,
   fixtureTokenMatches,
+  matchingControl,
   parseArgs,
   parseClientOutput,
   uniqueControl
@@ -42,6 +43,42 @@ test("semantic control lookup refuses missing and ambiguous targets", () => {
   assert.equal(uniqueControl(snapshot, "unique").target_id, "one");
   assert.throws(() => uniqueControl(snapshot, "missing"), /found 0/);
   assert.throws(() => uniqueControl(snapshot, "duplicate"), /found 2/);
+});
+
+test("semantic control lookup can disambiguate repeated radio names by label", () => {
+  const snapshot = {
+    forms: [{
+      controls: [
+        { name: "contact-preference", label: "Contact by email", kind: "radio", checked: false },
+        { name: "contact-preference", label: "Contact by phone", kind: "radio", checked: false }
+      ]
+    }]
+  };
+  assert.equal(matchingControl(snapshot,
+    (control) => control.name === "contact-preference" && control.label === "Contact by email",
+    "email contact-preference").kind, "radio");
+  assert.throws(() => matchingControl(snapshot,
+    (control) => control.name === "contact-preference",
+    "contact-preference"), /found 2/);
+});
+
+test("date input metadata keeps its ISO current value", () => {
+  const snapshot = {
+    forms: [{
+      controls: [{
+        name: "birth-date",
+        tag: "input",
+        kind: "text",
+        type: "date",
+        current_value: "2004-02-29"
+      }]
+    }]
+  };
+  const date = uniqueControl(snapshot, "birth-date");
+  assert.equal(date.tag, "input");
+  assert.equal(date.kind, "text");
+  assert.equal(date.type, "date");
+  assert.equal(date.current_value, "2004-02-29");
 });
 
 test("fixture readiness requires exactly one matching run token", () => {
