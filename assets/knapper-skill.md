@@ -491,13 +491,17 @@ printf '%s' '{"op":"form_perform","tab_id":419,"document_id":"document_1","actio
   knapper-chrome-client api
 ```
 
-Choose temporary targets from the snapshot's semantic metadata. If a
-`document_id` or `target_id` is stale, snapshot again; never invent or retain
-one across navigation. Allowed operations are `set_from`, `set_value`,
-`select_option`, and `set_checked`. There is no generic click, CSS selector, or
-arbitrary JavaScript operation. `form_submit` is separate and must only be used
-when the user explicitly authorized submission; a successful API response means
-the browser dispatched submission, not that the remote service accepted it.
+Choose temporary targets from the snapshot's semantic metadata. For a
+same-document rerender, `form_perform` automatically takes one fresh snapshot
+and retries only when every target can be uniquely remapped by form plus
+`name`/`label`/`type`. A missing or ambiguous target rejects the whole batch
+before any write. A stale `document_id` is never retried: snapshot again, and
+never invent or retain IDs across navigation. Allowed operations are
+`set_from`, `set_value`, `select_option`, and `set_checked`. There is no generic
+click, CSS selector, or arbitrary JavaScript operation. `form_submit` is
+separate and must only be used when the user explicitly authorized submission;
+a successful API response means the browser dispatched submission, not that
+the remote service accepted it.
 
 A value resolved by `set_from` crosses only Chrome's Native Messaging pipe.
 The client never receives it, and later snapshots conservatively omit all

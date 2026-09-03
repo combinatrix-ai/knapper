@@ -911,8 +911,12 @@ printf '%s' '{"op":"form_perform","tab_id":419,"document_id":"document_1","actio
 ```
 
 Snapshot `document_id`, `form_id`, and `target_id` values are temporary and
-become stale after navigation or relevant DOM changes. The API has no generic
-click, arbitrary JavaScript, or CSS-selector operation. It supports
+become stale after navigation or relevant DOM changes. For a same-document
+rerender, `form_perform` takes one fresh snapshot and retries only when every
+target can be uniquely remapped by its form and semantic metadata. A missing
+or ambiguous target rejects the whole batch before any write; navigation is
+never retried. The API has no generic click, arbitrary JavaScript, or
+CSS-selector operation. It supports
 `set_from`, literal `set_value`, `select_option`, and `set_checked`; form
 submission is a separate explicit `form_submit` request. A value resolved by
 `set_from` remains write-only: later snapshots conservatively omit all current

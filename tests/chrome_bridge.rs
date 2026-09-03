@@ -345,6 +345,80 @@ fn all_mode_lists_tabs_without_an_active_tab_selection() {
 }
 
 #[test]
+fn only_safe_api_rejection_codes_reach_the_client() {
+    let home = tempfile::tempdir().unwrap();
+    let runtime = tempfile::tempdir_in("/tmp").unwrap();
+    let mut host = Command::new(env!("CARGO_BIN_EXE_knapper-chrome-host"))
+        .env("XDG_CONFIG_HOME", home.path())
+        .env("XDG_RUNTIME_DIR", runtime.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut native_in = host.stdin.take().unwrap();
+    let mut native_out = BufReader::new(host.stdout.take().unwrap());
+
+    write_json(&mut native_in, &NativeMessage::Mode { mode: "all".into() }).unwrap();
+    wait_for_mode(home.path(), runtime.path(), "all");
+
+    let client = spawn_api_client(
+        home.path(),
+        runtime.path(),
+        r#"{"op":"form_perform","tab_id":41,"document_id":"document_1","actions":[{"op":"set_value","target_id":"target_1","value":"safe"}]}"#,
+    );
+    let request_id = match read_json::<_, NativeMessage>(&mut native_out).unwrap() {
+        NativeMessage::FormPerform { request_id, .. } => request_id,
+        message => panic!("expected form_perform, got {message:?}"),
+    };
+    write_json(
+        &mut native_in,
+        &NativeMessage::ApiRejected {
+            request_id,
+            code: "ambiguous_target".into(),
+        },
+    )
+    .unwrap();
+
+    let output = client.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(r#""status":"error""#));
+    assert!(stdout.contains(r#""code":"ambiguous_target""#));
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "Chrome bridge API request failed\n"
+    );
+
+    let client = spawn_api_client(
+        home.path(),
+        runtime.path(),
+        r#"{"op":"form_perform","tab_id":41,"document_id":"document_1","actions":[{"op":"set_value","target_id":"target_1","value":"safe"}]}"#,
+    );
+    let request_id = match read_json::<_, NativeMessage>(&mut native_out).unwrap() {
+        NativeMessage::FormPerform { request_id, .. } => request_id,
+        message => panic!("expected form_perform, got {message:?}"),
+    };
+    write_json(
+        &mut native_in,
+        &NativeMessage::ApiRejected {
+            request_id,
+            code: "page_detail".into(),
+        },
+    )
+    .unwrap();
+
+    let output = client.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(r#""code":"api_rejected""#));
+    assert!(!stdout.contains("page_detail"));
+
+    drop(native_in);
+    assert!(host.wait_with_output().unwrap().status.success());
+}
+
+#[test]
 fn opaque_snapshot_values_are_rejected_without_echoing_them() {
     const SECRET: &str = "must-not-cross-the-client-socket";
     const ORIGIN: &str = "https://example.test";

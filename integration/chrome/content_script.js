@@ -3,7 +3,9 @@
 // This file is injected once per document and remains in Chrome's isolated
 // world. The page never receives selectors, markers, values, or element
 // references. Targets returned by a snapshot are only handles into the maps
-// below and are invalidated by DOM mutations or navigation.
+// below and are invalidated by DOM mutations or navigation. Their semantic
+// descriptors are retained just long enough for one safe, document-local
+// remap after a rerender.
 if (!globalThis.__knapperFillContentScript) {
   const PICK_TEXT_TYPES = new Set(["text", "email", "tel", "search", "url"]);
   const UNSUPPORTED_INPUT_TYPES = new Set(["submit", "button", "reset", "image", "file"]);
@@ -12,6 +14,10 @@ if (!globalThis.__knapperFillContentScript) {
     cancelSelection: null,
     targets: new Map(),
     forms: new Map(),
+    // Historical records contain only non-sensitive identity metadata. They
+    // never retain control values or references after the live maps clear.
+    targetRecords: new Map(),
+    currentFormRecords: new Map(),
     opaqueTargets: new WeakSet(),
     hasOpaqueValue: false
   };
@@ -170,15 +176,44 @@ if (!globalThis.__knapperFillContentScript) {
   function clearTargets() {
     state.targets.clear();
     state.forms.clear();
+    state.currentFormRecords.clear();
   }
 
-  function controlMetadata(element, targetId, formId) {
+  function formMetadata(form, formId, pseudo = false) {
+    const method = String(form?.method || "get").toLowerCase();
+    const action = String(form?.action || location.href).slice(0, 4096);
+    const id = form?.getAttribute?.("id") || undefined;
+    const name = form?.getAttribute?.("name") || undefined;
+    // An explicit id/name is the stable DOM identity. For forms without one,
+    // method+action is the strongest identity available without selectors.
+    const key = pseudo ? "pseudo" : id ? `id:${id.slice(0, 240)}` : name ? `name:${name.slice(0, 240)}` : `method_action:${method}:${action}`;
+    return { form_id: formId, key, id_attr: id, name, method, action, pseudo };
+  }
+
+  function controlRecord(element, targetId, formRecord) {
+    const tag = element.tagName.toLowerCase();
+    const type = element instanceof HTMLInputElement ? inputType(element) : tag === "textarea" ? "textarea" : undefined;
+    const kind = element instanceof HTMLSelectElement ? "select" : element instanceof HTMLInputElement && ["checkbox", "radio"].includes(type) ? type : "text";
+    return {
+      target_id: targetId,
+      form_id: formRecord.form_id,
+      form_key: formRecord.key,
+      form_pseudo: formRecord.pseudo,
+      tag,
+      kind,
+      type,
+      name: element.getAttribute("name") || undefined,
+      label: labelFor(element)
+    };
+  }
+
+  function controlMetadata(element, targetId, formRecord) {
     const tag = element.tagName.toLowerCase();
     const type = element instanceof HTMLInputElement ? inputType(element) : tag === "textarea" ? "textarea" : undefined;
     const kind = element instanceof HTMLSelectElement ? "select" : element instanceof HTMLInputElement && ["checkbox", "radio"].includes(type) ? type : "text";
     const metadata = {
       target_id: targetId,
-      form_id: formId,
+      form_id: formRecord.form_id,
       tag,
       kind,
       type,
@@ -201,22 +236,29 @@ if (!globalThis.__knapperFillContentScript) {
     } else if (!state.hasOpaqueValue && !state.opaqueTargets.has(element) && type !== "password" && type !== "hidden") {
       metadata.current_value = String(element.value ?? "").slice(0, 4096);
     }
+    state.targetRecords.set(targetId, controlRecord(element, targetId, formRecord));
     return metadata;
   }
 
   function snapshot() {
     clearTargets();
+    // Keep recovery metadata bounded to the latest snapshot generation. A
+    // stale request captures the records it needs before taking its one fresh
+    // snapshot below.
+    state.targetRecords.clear();
     const forms = [];
     const formElements = Array.from(document.querySelectorAll("form"));
     for (const form of formElements) {
       const formId = randomId("form");
+      const formRecord = formMetadata(form, formId);
       state.forms.set(formId, form);
+      state.currentFormRecords.set(formId, formRecord);
       const controls = [];
       for (const element of form.querySelectorAll("input, textarea, select")) {
         if (!supportedControl(element)) continue;
         const targetId = randomId("target");
         state.targets.set(targetId, element);
-        controls.push(controlMetadata(element, targetId, formId));
+        controls.push(controlMetadata(element, targetId, formRecord));
       }
       forms.push({
         form_id: formId,
@@ -230,11 +272,13 @@ if (!globalThis.__knapperFillContentScript) {
       // A pseudo form keeps the snapshot schema uniform. It is intentionally
       // not added to state.forms, so form_submit can never submit it.
       const pseudoFormId = randomId("formless");
+      const formRecord = formMetadata(null, pseudoFormId, true);
+      state.currentFormRecords.set(pseudoFormId, formRecord);
       const controls = [];
       for (const element of formControls) {
         const targetId = randomId("target");
         state.targets.set(targetId, element);
-        controls.push(controlMetadata(element, targetId, pseudoFormId));
+        controls.push(controlMetadata(element, targetId, formRecord));
       }
       forms.push({ form_id: pseudoFormId, controls });
     }
@@ -257,50 +301,132 @@ if (!globalThis.__knapperFillContentScript) {
     return element.value === String(value) ? { ok: true } : { ok: false, code: "value_not_retained" };
   }
 
+  function sameFormIdentity(left, right) {
+    return Boolean(left && right && left.key === right.key && left.pseudo === right.pseudo);
+  }
+
+  function sameControlIdentity(left, right) {
+    if (!left || !right || left.form_key !== right.form_key) return false;
+    // Equality includes absent fields. An anonymous control must not silently
+    // become a named/labelled control after a rerender, and vice versa.
+    return left.tag === right.tag && left.kind === right.kind && left.type === right.type &&
+      left.name === right.name && left.label === right.label;
+  }
+
+  function freshCandidates(oldRecord) {
+    if (!oldRecord) return { code: "stale_target", candidates: [] };
+    const oldForm = { key: oldRecord.form_key, pseudo: oldRecord.form_pseudo };
+    const freshForms = [...state.currentFormRecords.values()].filter((candidate) => sameFormIdentity(oldForm, candidate));
+    if (freshForms.length === 0) return { code: "stale_target", candidates: [] };
+    if (freshForms.length !== 1) return { code: "ambiguous_target", candidates: [] };
+    const [freshForm] = freshForms;
+    const candidates = [...state.targets.entries()].filter(([targetId]) => {
+      const candidate = state.targetRecords.get(targetId);
+      const candidateForm = state.currentFormRecords.get(candidate?.form_id);
+      return candidateForm?.form_id === freshForm.form_id && sameControlIdentity(oldRecord, candidate);
+    });
+    return { code: null, candidates };
+  }
+
+  function remapStaleActions(actions) {
+    const oldRecords = actions.map((action) => state.targetRecords.get(action?.target_id));
+    // This is intentionally the sole retry point. snapshot() invalidates all
+    // live handles and creates a fresh document-local target generation.
+    snapshot();
+    if (oldRecords.some((record) => !record)) return { ok: false, code: "stale_target" };
+
+    const remapped = [];
+    const usedTargetIds = new Set();
+    const targetMappings = new Map();
+    for (let index = 0; index < actions.length; index += 1) {
+      const match = freshCandidates(oldRecords[index]);
+      if (match.code) return { ok: false, code: match.code };
+      const { candidates } = match;
+      if (candidates.length === 0) return { ok: false, code: "stale_target" };
+      if (candidates.length !== 1) return { ok: false, code: "ambiguous_target" };
+      const [targetId, element] = candidates[0];
+      // Distinct stale handles resolving to the same replacement would make
+      // the batch ambiguous even if each individual lookup had one result.
+      const originalTargetId = actions[index].target_id;
+      const previousTargetId = targetMappings.get(originalTargetId);
+      if (previousTargetId && previousTargetId !== targetId) return { ok: false, code: "ambiguous_target" };
+      if (!previousTargetId) {
+        if (usedTargetIds.has(targetId)) return { ok: false, code: "ambiguous_target" };
+        usedTargetIds.add(targetId);
+        targetMappings.set(originalTargetId, targetId);
+      }
+      remapped.push({ action: actions[index], element });
+    }
+    return { ok: true, remapped };
+  }
+
+  function performAction(action, element) {
+    let result = { ok: false, code: "unsupported_operation" };
+    if (action.op === "set_value" || action.op === "set_from") {
+      if (typeof action.value !== "string") result = { ok: false, code: "invalid_value" };
+      else {
+        result = dispatchValue(element, action.value);
+        if (result.ok && (action.opaque === true || action.op === "set_from")) {
+          state.opaqueTargets.add(element);
+          state.hasOpaqueValue = true;
+        }
+      }
+    } else if (action.op === "select_option" && element instanceof HTMLSelectElement) {
+      const index = typeof action.value === "string" ? Array.from(element.options).findIndex((option) => option.value === action.value) : -1;
+      if (index < 0 || index >= element.options.length || element.options[index].disabled) result = { ok: false, code: "option_not_found" };
+      else {
+        element.selectedIndex = index;
+        element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+        element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        result = { ok: true };
+      }
+    } else if (action.op === "set_checked" && element instanceof HTMLInputElement && ["checkbox", "radio"].includes(inputType(element))) {
+      if (typeof action.checked !== "boolean") result = { ok: false, code: "invalid_checked" };
+      else {
+        element.checked = action.checked;
+        element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+        element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        result = { ok: true };
+      }
+    }
+    return result;
+  }
+
+  function resultFor(action, result) {
+    return { target_id: action.target_id, op: action.op, status: result.ok ? "verified" : "rejected", ...(result.code ? { code: result.code } : {}), value_returned: false };
+  }
+
   function perform(message) {
     const stale = staleDocument(message);
     if (stale) return stale;
     if (!Array.isArray(message.actions) || message.actions.length > 128) return { ok: false, code: "invalid_actions" };
+    const staleAction = message.actions.some((action) => {
+      if (!action || typeof action.target_id !== "string") return false;
+      const element = state.targets.get(action.target_id);
+      return !element || !element.isConnected || !supportedControl(element);
+    });
+    let mappedActions = null;
+    if (staleAction) {
+      const remapped = remapStaleActions(message.actions);
+      if (!remapped.ok) return remapped;
+      mappedActions = remapped.remapped;
+    }
+
     const results = [];
     for (const action of message.actions) {
       if (!action || typeof action.target_id !== "string" || typeof action.op !== "string") {
         results.push({ target_id: action?.target_id || "invalid", op: action?.op || "invalid", status: "rejected", code: "invalid_action" });
         continue;
       }
-      const element = state.targets.get(action.target_id);
+      const mapped = mappedActions?.find((candidate) => candidate.action === action);
+      const element = mapped ? mapped.element : state.targets.get(action.target_id);
       if (!element || !element.isConnected || !supportedControl(element)) {
+        if (mappedActions) return { ok: false, code: "stale_target" };
         results.push({ target_id: action.target_id, op: action.op, status: "rejected", code: "stale_target" });
         continue;
       }
-      let result = { ok: false, code: "unsupported_operation" };
-      if (action.op === "set_value" || action.op === "set_from") {
-        if (typeof action.value !== "string") result = { ok: false, code: "invalid_value" };
-        else {
-          result = dispatchValue(element, action.value);
-          if (result.ok && (action.opaque === true || action.op === "set_from")) {
-            state.opaqueTargets.add(element);
-            state.hasOpaqueValue = true;
-          }
-        }
-      } else if (action.op === "select_option" && element instanceof HTMLSelectElement) {
-        const index = typeof action.value === "string" ? Array.from(element.options).findIndex((option) => option.value === action.value) : -1;
-        if (index < 0 || index >= element.options.length || element.options[index].disabled) result = { ok: false, code: "option_not_found" };
-        else {
-          element.selectedIndex = index;
-          element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
-          element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
-          result = { ok: true };
-        }
-      } else if (action.op === "set_checked" && element instanceof HTMLInputElement && ["checkbox", "radio"].includes(inputType(element))) {
-        if (typeof action.checked !== "boolean") result = { ok: false, code: "invalid_checked" };
-        else {
-          element.checked = action.checked;
-          element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
-          element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
-          result = { ok: true };
-        }
-      }
-      results.push({ target_id: action.target_id, op: action.op, status: result.ok ? "verified" : "rejected", ...(result.code ? { code: result.code } : {}), value_returned: false });
+      const result = performAction(action, element);
+      results.push(resultFor(action, result));
     }
     return { ok: true, document_id: documentId, results };
   }
