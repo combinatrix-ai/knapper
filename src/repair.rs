@@ -28,11 +28,11 @@ use rayon::prelude::*;
 use regex::Regex;
 use serde_json::{json, Value};
 
-use crate::graph::{build_resolver, IgnoredLinks, LinkResolver};
-use crate::links::{
-    column_of, line_of, render, scan_links, strip_unwritten_extension, Kind, RawLink,
+use crate::graph::{
+    build_resolver, markdown_link_occurrences, IgnoredLinks, LinkResolver, MISSING_BLOCK,
+    MISSING_HEADING,
 };
-use crate::note::parse_note;
+use crate::links::{column_of, line_of, render, strip_unwritten_extension, Kind, RawLink};
 use crate::org;
 use crate::parser::{normalize_markdown_path, normalize_wikilink_target, NOTE_SUFFIXES};
 use crate::vault::{all_files, all_notes, is_org, relative_path, Config};
@@ -362,45 +362,54 @@ impl Scanner<'_> {
             return self.org_note(&source, &content);
         }
 
-        // The graph's own view of what this note links to. Filtering through
-        // it is what keeps `broken-links` reporting exactly the set `lint` and
-        // `query --where broken>0` count: a span is a position for a link the
-        // parser already found, never a link of its own.
-        let known = parse_note(path, &content).links;
-
         let mut found = Vec::new();
-        for link in scan_links(&content) {
-            // An embedded image is not an outgoing link, which is the rule
-            // the parser follows for `![](x.md)`.
-            if link.embed && link.kind == Kind::Markdown {
-                continue;
-            }
-            let target = match link.kind {
-                Kind::Wiki => normalize_wikilink_target(&link.path),
-                Kind::Markdown => normalize_markdown_path(&link.path),
+        for occurrence in markdown_link_occurrences(path, &content) {
+            let link = occurrence.link;
+            let target = occurrence.target;
+
+            let resolved = match target.as_deref() {
+                Some(target) => self.resolver.resolve(&source, target),
+                None => Some(source.clone()),
             };
-            let Some(target) = target else { continue };
-            if !known.contains(&target)
-                || self.resolver.resolve(&source, &target).is_some()
-                || self.ignored.contains(&target)
-            {
-                continue;
+            match resolved {
+                Some(resolved) => {
+                    if !link.anchor.is_empty() {
+                        if let Some(reason) =
+                            self.resolver.missing_anchor_reason(&resolved, &link.anchor)
+                        {
+                            found.push(self.classify_missing_anchor(
+                                &source,
+                                &content,
+                                &link,
+                                target.as_deref(),
+                                &resolved,
+                                reason,
+                            ));
+                        }
+                    }
+                }
+                None => {
+                    let Some(target) = target else { continue };
+                    if !self.ignored.contains(&target) {
+                        found.push(self.classify(&source, &content, &link, target));
+                    }
+                }
             }
-            found.push(self.classify(&source, &content, &link, target));
         }
         found
     }
 
     fn classify(&self, source: &str, content: &str, link: &RawLink, target: String) -> Occurrence {
         let reason = reason_for(&target);
+        let diagnostic_target = format!("{target}{}", link.anchor);
         let mut occurrence = Occurrence {
             source: source.to_string(),
             line: line_of(content, link.range.start),
             column: Some(column_of(content, link.range.start)),
             syntax: link.kind.name(),
             raw: content[link.range.clone()].to_string(),
-            raw_target: link.path.clone(),
-            target,
+            raw_target: format!("{}{}", link.path, link.anchor),
+            target: diagnostic_target,
             reason,
             status: UNRESOLVED,
             candidates: Vec::new(),
@@ -419,7 +428,7 @@ impl Scanner<'_> {
         }
 
         let (candidates, safe_eligible) =
-            candidates_for(self.resolver, self.destinations, source, &occurrence.target);
+            candidates_for(self.resolver, self.destinations, source, &target);
         if candidates.is_empty() {
             occurrence.note = Some("no file matches this target".into());
             return occurrence;
@@ -462,6 +471,41 @@ impl Scanner<'_> {
         }
         occurrence.candidates = candidates;
         occurrence
+    }
+
+    fn classify_missing_anchor(
+        &self,
+        source: &str,
+        content: &str,
+        link: &RawLink,
+        target: Option<&str>,
+        resolved: &str,
+        reason: &'static str,
+    ) -> Occurrence {
+        debug_assert!(reason == MISSING_HEADING || reason == MISSING_BLOCK);
+        let target = match target {
+            Some(target) => format!("{target}{}", link.anchor),
+            None => link.anchor.clone(),
+        };
+        let noun = if reason == MISSING_HEADING {
+            "heading"
+        } else {
+            "block ID"
+        };
+        Occurrence {
+            source: source.to_string(),
+            line: line_of(content, link.range.start),
+            column: Some(column_of(content, link.range.start)),
+            syntax: link.kind.name(),
+            raw: content[link.range.clone()].to_string(),
+            raw_target: format!("{}{}", link.path, link.anchor),
+            target,
+            reason,
+            status: UNRESOLVED,
+            candidates: Vec::new(),
+            edit: None,
+            note: Some(format!("the {noun} does not exist in {resolved}")),
+        }
     }
 
     /// org links are reported with their line and never with a repair.
