@@ -4,10 +4,10 @@
 //! Behaviour is pinned by tests/contract/cases.yaml, which this binary and the
 //! Python implementation both answer to.
 
-// The port is partial: several struct fields mirror the Python shape and are
-// read by commands that have not landed yet. Removing them now would mean
-// adding them back, and the two implementations should stay comparable.
-#![allow(dead_code)]
+// A binary test harness replaces `main`, so its command tree appears unused
+// even though the production binary reaches it. Keep that suppression out of
+// normal builds so genuinely dead production code remains visible.
+#![cfg_attr(test, allow(dead_code))]
 
 mod commands;
 mod demote;

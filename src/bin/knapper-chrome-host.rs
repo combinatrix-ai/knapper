@@ -31,7 +31,6 @@ mod unix_host {
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct BrowserContext {
-        #[allow(dead_code)]
         tab_id: i64,
         url: String,
         origin: String,
