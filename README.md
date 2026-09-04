@@ -57,7 +57,7 @@ because they require understanding the *structure* of a vault:
 - 🔐 **External references** — `knapper://` links to values a provider command resolves, kept out of the vault
 
 It is built to survive real vaults: tags are Unicode-aware and nest
-(`#日本語` and `#parent/child` both work), and one malformed YAML header never
+(`#café` and `#parent/child` both work), and one malformed YAML header never
 aborts a whole-vault scan.
 
 ## Two tools you might want instead
@@ -191,7 +191,7 @@ given vault offers.
 
 ## Hard links and soft tags
 
-A vault that has been written in for years is full of `[[COO採用]]` — square
+A vault that has been written in for years is full of `[[COO-hiring]]` — square
 brackets used as a highlighter, never as a promise that a note by that name
 exists. knapper is right to call those broken links, and the fix is not to
 soften the report. It is to write what was meant.
@@ -208,13 +208,13 @@ A tag is not a note and never becomes one. It is not an orphan, not a hub, and
 a label you cannot follow is only half a label:
 
 ```
-$ knapper backlinks '#COO採用'
+$ knapper backlinks '#COO-hiring'
 
-Daily/2026-07-01.md (line 10) #COO採用
+Daily/2026-07-01.md (line 10) #COO-hiring
 
-Daily/2026-07-01.md (line 22) #COO採用
+Daily/2026-07-01.md (line 22) #COO-hiring
 
-Notes/Hiring.md (line 3) #COO採用/面接
+Notes/Hiring.md (line 3) #COO-hiring/interviews
 ```
 
 Quote it — an unquoted `#` starts a comment in most shells. A leading `#` is
@@ -227,26 +227,26 @@ writing a path for it, `./#notes.md`.
 note that does not exist:
 
 ```bash
-knapper context '#COO採用' --format json
+knapper context '#COO-hiring' --format json
 ```
 
 ```json
 {
   "kind": "tag",
-  "tag": "COO採用",
-  "selector": "#COO採用",
+  "tag": "COO-hiring",
+  "selector": "#COO-hiring",
   "notes": ["Daily/2026-07-01.md", "Notes/Hiring.md", "Notes/Log.org"],
-  "nested_tags": ["COO採用/面接"],
+  "nested_tags": ["COO-hiring/interviews"],
   "occurrences": [
     {
       "source": "Daily/2026-07-01.md",
       "line": 10,
-      "tag": "COO採用",
+      "tag": "COO-hiring",
       "where": "inline",
-      "text": "- 求人票を書いた #COO採用"
+      "text": "- Wrote the job description #COO-hiring"
     }
   ],
-  "tasks": [{"file": "Daily/2026-07-01.md", "line": 22, "text": "面談を設定する #COO採用", "done": false}],
+  "tasks": [{"file": "Daily/2026-07-01.md", "line": 22, "text": "Schedule an interview #COO-hiring", "done": false}],
   "stats": {"notes": 3, "occurrences": 4}
 }
 ```
@@ -279,16 +279,16 @@ The matching rules are deliberately narrow, and the same in both commands:
 `demote` is the migration: it rewrites the **exact** form and nothing else.
 
 ```
-$ knapper demote "COO採用" --dry-run
-[DRY RUN] Demoting [[COO採用]] -> #COO採用
+$ knapper demote "COO-hiring" --dry-run
+[DRY RUN] Demoting [[COO-hiring]] -> #COO-hiring
   Would update 2 links in 2 files:
     Daily/2026-07-01.md
-      9: [[COO採用]] -> #COO採用
+      9: [[COO-hiring]] -> #COO-hiring
     Daily/2026-07-02.md
-      7: [[COO採用]] -> #COO採用
-  ⚠️ Daily/2026-07-01.md:15: [[COO採用|採用の件]] cannot be demoted (alias)
-  ⚠️ Daily/2026-07-01.md:19: [[Archives/COO採用]] cannot be demoted (path-qualified)
-  ⚠️ Daily/2026-07-01.md:20: [[COO採用]] cannot be demoted (adjacent text)
+      7: [[COO-hiring]] -> #COO-hiring
+  ⚠️ Daily/2026-07-01.md:15: [[COO-hiring|hiring discussion]] cannot be demoted (alias)
+  ⚠️ Daily/2026-07-01.md:19: [[Archives/COO-hiring]] cannot be demoted (path-qualified)
+  ⚠️ Daily/2026-07-01.md:20: [[COO-hiring]] cannot be demoted (adjacent text)
 
 Nothing was written.
 ```
@@ -302,7 +302,7 @@ passed over in silence, because those are the ones still to deal with by hand:
 | `anchor` | `[[X#Heading]]`, `[[X^b12]]` — a tag has no inside |
 | `embed` | `![[X]]` — an embed transcludes, a tag does not |
 | `path-qualified` | `[[Folder/X]]` — a path names a file, not a topic |
-| `adjacent text` | `見た[[X]]の` — `#Xの` would be a *different* tag |
+| `adjacent text` | `saw[[X]]again` — `#Xagain` would be a *different* tag |
 | `frontmatter` | a YAML value is not prose, and `#X` in one is a string |
 | `org-mode` | knapper reads org and does not rewrite it, here as elsewhere |
 
@@ -317,16 +317,16 @@ the line, the trailing newline and CRLF endings all survive as they were.
 ```json
 {
   "kind": "demote",
-  "target": "COO採用",
-  "tag": "COO採用",
+  "target": "COO-hiring",
+  "tag": "COO-hiring",
   "dry_run": true,
   "applied": false,
   "files_updated": ["Daily/2026-07-01.md", "Daily/2026-07-02.md"],
   "links_updated": 2,
   "edits": [{"file": "Daily/2026-07-01.md", "links": 1,
-             "changes": [{"line": 9, "before": "[[COO採用]]", "after": "#COO採用"}]}],
+             "changes": [{"line": 9, "before": "[[COO-hiring]]", "after": "#COO-hiring"}]}],
   "skipped": [{"file": "Daily/2026-07-01.md", "line": 15,
-               "text": "[[COO採用|採用の件]]", "reason": "alias"}]
+               "text": "[[COO-hiring|hiring discussion]]", "reason": "alias"}]
 }
 ```
 
@@ -792,7 +792,7 @@ licence key, a token. Write them as an ordinary markdown link with a
 `knapper://` destination, and the value stays wherever you already keep it:
 
 ```markdown
-住所: [日本橋小舟町の住所](knapper://personal/address.nihonbashi_kobunacho)
+Address: [Nihonbashi Kobunacho address](knapper://personal/address.nihonbashi_kobunacho)
 ```
 
 A reference is `knapper://<provider>/<locator>`. The **provider** is a name
@@ -802,8 +802,8 @@ as written. Both halves still have a deliberate grammar. Provider names are
 lowercase letters, digits, `_` and `-`; locators use ASCII letters, digits,
 `.`, `_`, `-` and `/`, are at most 128 characters, and have no empty, `.` or
 `..` segments. A destination outside that grammar is not a reference: `refs`
-will not list it and `resolve` will refuse it. Keep names romanised —
-`address.nihonbashi_kobunacho`, not `住所`.
+will not list it and `resolve` will refuse it. Keep locators machine-readable —
+`address.nihonbashi_kobunacho`, not `Street Address`.
 
 ### Finding references
 
@@ -1094,7 +1094,7 @@ would hide a real mistake:
   says nothing about `[[Daily Tasks Archive]]` or `[[Sub/Daily Tasks]]`.
 - Comparison is **case-insensitive**, matching how knapper resolves links.
 - The target compared is the one knapper resolves, so `[[Daily Tasks]]`,
-  `[[Daily Tasks#2026]]`, `[[Daily Tasks|やること]]` and
+  `[[Daily Tasks#2026]]`, `[[Daily Tasks|things to do]]` and
   `[Daily Tasks](Daily%20Tasks.md)` are all the same entry.
 - An entry may be written the way the link is written in a note:
   `[[Habits]]`, `Habits.md` and `Habits` are equivalent.
