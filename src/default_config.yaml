@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/combinatrix-ai/knapper/main/schema/knapper.schema.json
+#
+# This file is the starting point for a knapper vault. YAML-aware editors can
+# use the schema above for completion, hover documentation and diagnostics.
+
+vault_path: .
+template_engine: templater
+# flavor: markdown        # markdown (default) | logseq
+exclude:                  # subtrees no whole-vault command should read
+  - Templates/            # unexpanded templates are not notes; see below
+# - Archives/
+# - logs/
+# ignore_links:           # link targets that are meant to stay unresolved
+#   - Daily Tasks          # matched whole, case-insensitively, never as a
+#   - Archive/Old Index    # substring; write the path to ignore a path link
+# lint:
+#   rules:
+#     # Rules are enabled by default. A disabled rule is omitted from a plain
+#     # `knapper lint`, but `knapper lint --check RULE` still runs it.
+#     broken-links:
+#       enabled: true
+#       # include: [Projects/]  # source/file paths covered by this rule
+#       # exclude: [Projects/archive/]
+#     # orphans:
+#     #   enabled: false
+#     # duplicates:
+#     #   include: [Notes/]
+#     # empty:
+#     #   exclude: [Sources/]
+#     # frontmatter:
+#     #   enabled: false
+daily_notes:
+  folder: Daily
+  template: Templates/daily.md
+  format: YYYY-MM-DD
+tasks:
+  created_date: true                 # Add created date when creating new tasks
+  created_date_format: "➕ YYYY-MM-DD"  # Format for created date
+  default_file: daily                # daily | inbox | path
+  inbox: Inbox/Tasks.md              # Inbox file path
+  # Built-in statuses: open " ", done "x" ✅, wip "/", cancel "-" ❌.
+  # Override fields on existing statuses or add custom ones. A new status
+  # must set `char` -- one character, and not one already in use, because
+  # that is how a task says which status it is in. Example:
+  # statuses:
+  #   cancel:
+  #     date_format: "🚫 YYYY-MM-DD"  # override the default ❌ marker
+  #   done:
+  #     date_format: null             # stop stamping completion dates
+  #   forward:
+  #     char: ">"
+  #     closed: true
+  #     date_format: "➡️ YYYY-MM-DD"

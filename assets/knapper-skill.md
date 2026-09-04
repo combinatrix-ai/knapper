@@ -48,11 +48,13 @@ Publish, workspaces. knapper is for everywhere that is not true.
 ## Setup
 
 knapper walks up from the working directory to find the nearest
-`knapper.config.md`, so commands work from any subdirectory once one exists.
+`knapper.yaml`, so commands work from any subdirectory once one exists.
+The former `knapper.config.md` is not discovered or used.
 
 ```bash
 cd ~/your-vault
-knapper init          # writes knapper.config.md and Templates/daily.md
+knapper init          # writes knapper.yaml and Templates/daily.md
+knapper config check  # validate knapper.yaml without scanning the vault
 ```
 
 ## Output formats
@@ -343,7 +345,7 @@ knapper tasks --prose-only    # skip fenced, commented and inline-code checkboxe
 ```
 
 It drops the examples and keeps a real task whose text merely contains an
-inline-code span. `exclude:` in `knapper.config.md` is the other answer when
+inline-code span. `exclude:` in `knapper.yaml` is the other answer when
 the examples all live in one folder.
 
 ```bash
@@ -375,7 +377,7 @@ knapper tasks set STATUS TEXT            # config-defined statuses too
 An ambiguous match is refused, not guessed. Narrow it with `--file`.
 
 Built-in statuses: `open` `[ ]`, `wip` `[/]`, `done` `[x]`, `cancel` `[-]`.
-`knapper.config.md` can override their markers or add new ones under
+`knapper.yaml` can override their markers or add new ones under
 `tasks.statuses`. `done` stamps `✅ YYYY-MM-DD` and `cancel` stamps
 `❌ YYYY-MM-DD`; `date_format: null` on a status stops it stamping anything.
 
@@ -394,7 +396,7 @@ Templates expand on creation: Obsidian core (`{{date}}`, `{{time}}`,
 
 If `daily_notes.template` names a file that cannot be read, `daily` exits
 non-zero and writes nothing -- no note, and not the folder either. Report the
-error rather than retrying; the fix is in `knapper.config.md` or on disk. A
+error rather than retrying; the fix is in `knapper.yaml` or on disk. A
 vault that configured no template gets a plain `# YYYY-MM-DD`.
 
 `knapper init` creates the template it configures, so `init` then `daily`
@@ -528,12 +530,17 @@ local script work the same way.
 Rules to follow: `knapper refs` shows only *where* a reference is, never what
 it is worth -- do not claim a value from it. Never write a resolved value into
 a note, a commit, a log or a file; knapper itself does not cache or store one.
-Never propose putting provider commands in `knapper.config.md`; the vault is
+Never propose putting provider commands in `knapper.yaml`; the vault is
 not a place executable configuration can come from. knapper refuses a
 `providers:` block there by name, so suggesting one breaks every vault
 command until it is removed.
 
 ## Vault health
+
+`knapper.yaml` is a complete YAML document, not Markdown frontmatter. It
+includes a `yaml-language-server` schema modeline when created by `knapper
+init`. Use `knapper config check` for the authoritative runtime validation,
+and `knapper config schema` to print the schema for an editor or CI tool.
 
 ```bash
 knapper lint                 # broken links, orphans, duplicates, stubs, missing frontmatter
@@ -541,7 +548,7 @@ knapper lint --check broken-links --format json
 knapper repair-links --dry-run   # which of those broken links could be repaired
 ```
 
-`knapper.config.md` can scope or disable the individual `lint` rules:
+`knapper.yaml` can scope or disable the individual `lint` rules:
 
 ```yaml
 lint:
@@ -580,15 +587,15 @@ provider command configured for `resolve` may open its own.
   do not appear in the graph. The same goes for tags.
 - A tag is never a graph node. `orphans`, `hubs` and `broken-links` do not
   change shape because a vault uses tags, and a `#tag` is never broken.
-- `knapper.config.md` can `exclude:` whole subtrees (imported archives,
+- `knapper.yaml` can `exclude:` whole subtrees (imported archives,
   generated logs, unexpanded templates). Every command honours it, and it is
   the only way a subtree becomes invisible -- knapper has no folder names it
   treats specially.
-- `knapper.config.md` is validated strictly: an unknown key, a key of the
+- `knapper.yaml` is validated strictly: an unknown key, a key of the
   wrong type, or an unsupported `template_engine`/`flavor` is an error naming
   the key, not a silent default. Notes stay lenient -- a broken YAML header
   costs that note its frontmatter and nothing more.
-- `knapper.config.md` can also `ignore_links:` link targets that are meant to
+- `knapper.yaml` can also `ignore_links:` link targets that are meant to
   stay unresolved. `lint`, `broken-links` and `query --where broken>0` stop
   reporting them. An entry matches a whole target, case-insensitively; it is
   never a substring, and a path-qualified link needs its path written out.

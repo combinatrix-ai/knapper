@@ -16,7 +16,7 @@ use std::process::Command;
 /// files, links, broken, tasks.
 type Counts = (usize, usize, usize, usize);
 
-/// `files` excludes knapper.config.md, which is knapper's own settings
+/// `files` excludes knapper.yaml, which is knapper's own settings
 /// rather than one of the user's notes.
 const EXPECTED: &[(&str, Counts)] = &[
     // Fully supported. The obsidian fixture also proves that links inside a

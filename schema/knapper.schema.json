@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/combinatrix-ai/knapper/main/schema/knapper.schema.json",
+  "title": "Knapper configuration",
+  "description": "Configuration for the knapper CLI and its vault-level commands.",
+  "type": ["object", "null"],
+  "additionalProperties": false,
+  "properties": {
+    "vault_path": {
+      "type": "string",
+      "description": "Vault path, resolved relative to the directory containing this file."
+    },
+    "template_engine": {
+      "type": "string",
+      "enum": ["templater", "core"],
+      "description": "Template expansion engine used by daily notes."
+    },
+    "flavor": {
+      "type": "string",
+      "enum": ["markdown", "logseq"],
+      "description": "Note flavor-specific parsing."
+    },
+    "exclude": {
+      "anyOf": [
+        { "$ref": "#/$defs/stringList" },
+        { "type": "null" }
+      ],
+      "description": "Vault-relative path prefixes omitted from whole-vault commands."
+    },
+    "ignore_links": {
+      "anyOf": [
+        { "$ref": "#/$defs/stringList" },
+        { "type": "null" }
+      ],
+      "description": "Whole link targets that are intentionally unresolved."
+    },
+    "lint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rules": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-check settings. Every check is enabled by default.",
+          "properties": {
+            "broken-links": { "$ref": "#/$defs/lintRule" },
+            "orphans": { "$ref": "#/$defs/lintRule" },
+            "duplicates": { "$ref": "#/$defs/lintRule" },
+            "empty": { "$ref": "#/$defs/lintRule" },
+            "frontmatter": { "$ref": "#/$defs/lintRule" }
+          }
+        }
+      }
+    },
+    "daily_notes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "folder": {
+          "type": "string",
+          "description": "Folder where daily notes are created."
+        },
+        "template": {
+          "type": ["string", "null"],
+          "description": "Vault-relative template path for newly created daily notes."
+        },
+        "format": {
+          "type": "string",
+          "description": "Date format used in daily-note paths."
+        }
+      }
+    },
+    "tasks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_file": {
+          "type": "string",
+          "description": "Where tasks new writes by default: daily, inbox, or a path."
+        },
+        "inbox": {
+          "type": "string",
+          "description": "Vault-relative inbox path for tasks new."
+        },
+        "created_date": {
+          "type": "boolean",
+          "description": "Whether tasks new adds a created date."
+        },
+        "created_date_format": {
+          "type": "string",
+          "description": "Format for the created date appended to new tasks."
+        },
+        "statuses": {
+          "type": "object",
+          "description": "Built-in status overrides and user-defined task statuses.",
+          "additionalProperties": { "$ref": "#/$defs/status" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "stringList": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    },
+    "lintRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Include this check in a plain knapper lint run."
+        },
+        "include": {
+          "$ref": "#/$defs/stringList",
+          "description": "Optional vault-relative path prefixes covered by this check."
+        },
+        "exclude": {
+          "$ref": "#/$defs/stringList",
+          "description": "Vault-relative path prefixes excluded from this check."
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "char": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 1,
+          "description": "The single checkbox character for this status."
+        },
+        "closed": {
+          "type": ["boolean", "null"],
+          "description": "Whether this status counts as closed."
+        },
+        "date_format": {
+          "type": ["string", "null"],
+          "description": "Date marker stamped when a task enters this status; null disables stamping."
+        }
+      }
+    }
+  }
+}

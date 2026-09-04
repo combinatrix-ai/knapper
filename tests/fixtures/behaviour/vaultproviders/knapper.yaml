@@ -1,0 +1,9 @@
+vault_path: .
+# A vault travels: it is synced, shared, cloned and handed over. This block is
+# here to be refused, twice over.
+#
+# `knapper resolve` never reads a vault, so this command is not reachable from
+# the resolver even in principle. Every other command refuses it by name.
+providers:
+  fromvault:
+    command: [touch, executed-a-vault-command]

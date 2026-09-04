@@ -151,6 +151,17 @@ enum ProviderCommand {
     Remove { name: String },
 }
 
+#[derive(Subcommand)]
+enum ConfigCommand {
+    /// Validate the discovered config without scanning the vault.
+    Check {
+        #[arg(short = 'f', long = "format", default_value = "text")]
+        format: String,
+    },
+    /// Print the JSON Schema used by YAML-aware editors.
+    Schema,
+}
+
 // A clap command enum is built once, at startup, from argv. The size of its
 // largest variant costs nothing here, and splitting the flags of one command
 // into a boxed struct would only obscure what the CLI accepts.
@@ -245,6 +256,9 @@ enum Command {
         #[arg(short = 'f', long = "force")]
         force: bool,
     },
+    /// Inspect or print the knapper YAML configuration schema.
+    #[command(subcommand)]
+    Config(ConfigCommand),
     /// Print the embedded agent skill, or register it with the agents here.
     Skill {
         /// Write it into every agent host found on this machine.
@@ -530,6 +544,10 @@ fn run() -> Result<()> {
     // work from anywhere too.
     match &cli.command {
         Command::Init { force } => return notes_cmd::init(*force),
+        Command::Config(ConfigCommand::Schema) => return notes_cmd::config_schema(),
+        Command::Config(ConfigCommand::Check { format }) => {
+            return notes_cmd::config_check(cli.config.as_deref(), cli.vault.as_deref(), format)
+        }
         Command::Skill { install } => return skill::run(*install),
         Command::SelfUpdate { check, yes } => return update::run(*check, *yes),
         Command::Provider(ProviderCommand::List { format }) => {
@@ -600,6 +618,7 @@ fn run() -> Result<()> {
             repair::repair_links(&config, dry_run, &format)
         }
         Command::Init { .. }
+        | Command::Config(..)
         | Command::Skill { .. }
         | Command::SelfUpdate { .. }
         | Command::Provider(..)

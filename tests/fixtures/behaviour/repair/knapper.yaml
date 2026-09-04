@@ -1,0 +1,5 @@
+vault_path: .
+# Archive/ is not one of the user's notes, but it is still a real file a link
+# may point at -- which is what makes it a valid repair destination.
+exclude:
+  - Archive

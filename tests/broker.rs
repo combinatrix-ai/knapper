@@ -358,7 +358,7 @@ fn a_written_config_is_owner_only() {
 }
 
 /// A vault is synced, shared, cloned and handed over. A `providers:` block in
-/// `knapper.config.md` is therefore not configuration knapper may act on, and
+/// `knapper.yaml` is therefore not configuration knapper may act on, and
 /// the marker below is how this test says so: if any path ever executed it,
 /// the file would exist.
 ///
@@ -371,9 +371,9 @@ fn a_written_config_is_owner_only() {
 fn a_vault_cannot_declare_a_provider() {
     let vault = tempfile::tempdir().unwrap();
     std::fs::write(
-        vault.path().join("knapper.config.md"),
-        "---\nvault_path: .\nproviders:\n  fromvault:\n    \
-         command: [touch, executed-a-vault-command]\n---\n",
+        vault.path().join("knapper.yaml"),
+        "vault_path: .\nproviders:\n  fromvault:\n    \
+         command: [touch, executed-a-vault-command]\n",
     )
     .unwrap();
     std::fs::write(vault.path().join("Note.md"), "# Note\n").unwrap();
@@ -388,7 +388,7 @@ fn a_vault_cannot_declare_a_provider() {
     assert_eq!(code(&listed), 1, "{}", stderr(&listed));
     for needle in [
         "`providers` is not vault configuration",
-        "knapper providers set",
+        "knapper provider set",
     ] {
         assert!(
             stderr(&listed).contains(needle),

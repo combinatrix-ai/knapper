@@ -51,12 +51,18 @@ fn init_then_daily_works_in_a_directory_that_had_nothing_in_it() {
         "init configured {TEMPLATE} without creating it"
     );
     // Both files are reported, because both appeared.
-    assert!(
-        stdout(&init).contains("knapper.config.md"),
-        "{}",
-        stdout(&init)
-    );
+    assert!(stdout(&init).contains("knapper.yaml"), "{}", stdout(&init));
     assert!(stdout(&init).contains(TEMPLATE), "{}", stdout(&init));
+    let config_text = std::fs::read_to_string(dir.path().join("knapper.yaml")).unwrap();
+    assert!(
+        !config_text.starts_with("---"),
+        "init still wrote Markdown frontmatter"
+    );
+    assert!(
+        config_text.contains("yaml-language-server: $schema="),
+        "init did not include the YAML Language Server schema modeline"
+    );
+    serde_yaml::from_str::<serde_yaml::Value>(&config_text).expect("init writes valid YAML");
 
     let daily = knapper(dir.path(), &["daily", "--format", "json"]);
     assert!(daily.status.success(), "{}", stderr(&daily));
@@ -125,7 +131,7 @@ fn an_existing_template_is_never_overwritten() {
 #[test]
 fn a_refused_init_creates_no_template_either() {
     let dir = empty_vault();
-    std::fs::write(dir.path().join("knapper.config.md"), "---\n---\n").unwrap();
+    std::fs::write(dir.path().join("knapper.yaml"), "# existing config\n").unwrap();
 
     let out = knapper(dir.path(), &["init"]);
     assert!(!out.status.success());
@@ -136,9 +142,53 @@ fn a_refused_init_creates_no_template_either() {
         "a refused init created a template folder"
     );
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("knapper.config.md")).unwrap(),
-        "---\n---\n",
+        std::fs::read_to_string(dir.path().join("knapper.yaml")).unwrap(),
+        "# existing config\n",
         "a refused init rewrote the config"
+    );
+}
+
+#[test]
+fn config_check_validates_without_scanning_the_vault() {
+    let dir = empty_vault();
+    assert!(knapper(dir.path(), &["init"]).status.success());
+
+    let out = knapper(dir.path(), &["config", "check", "--format", "json"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let result: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(result["valid"], true);
+    let config_path = std::fs::canonicalize(dir.path().join("knapper.yaml")).unwrap();
+    assert_eq!(
+        result["path"].as_str().unwrap(),
+        config_path.to_string_lossy()
+    );
+}
+
+#[test]
+fn config_schema_is_available_without_a_vault_config() {
+    let dir = empty_vault();
+    let out = knapper(dir.path(), &["config", "schema"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let schema: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(schema["title"], "Knapper configuration");
+    assert!(schema["properties"]["lint"].is_object());
+}
+
+#[test]
+fn the_legacy_markdown_config_is_not_discovered() {
+    let dir = empty_vault();
+    std::fs::write(
+        dir.path().join("knapper.config.md"),
+        "---\nvault_path: .\n---\n",
+    )
+    .unwrap();
+
+    let out = knapper(dir.path(), &["links", "Note.md"]);
+    assert!(!out.status.success());
+    assert!(
+        stderr(&out).contains("Run 'knapper init'"),
+        "{}",
+        stderr(&out)
     );
 }
 
@@ -172,7 +222,7 @@ fn a_template_that_cannot_be_written_leaves_no_config_behind() {
         stdout(&out)
     );
     assert!(
-        !dir.path().join("knapper.config.md").exists(),
+        !dir.path().join("knapper.yaml").exists(),
         "a config was left pointing at a template that could not be written"
     );
     assert!(!dir.path().join("Templates").exists());

@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Result};
 use walkdir::WalkDir;
 
-pub const CONFIG_FILENAME: &str = "knapper.config.md";
+/// The vault-local machine configuration. This is deliberately a real YAML
+/// file rather than Markdown frontmatter so YAML-aware editors can validate
+/// and complete it against `knapper.schema.json`.
+pub const CONFIG_FILENAME: &str = "knapper.yaml";
 pub const DEFAULT_EXTENSIONS: &[&str] = &["md", "markdown", "mdx", "org"];
 
 /// The checks exposed by `knapper lint`, in the order used by its reports.
@@ -120,7 +123,7 @@ fn as_string_list(value: Option<&serde_yaml::Value>) -> Vec<String> {
 //
 // A note is read leniently: a header that does not parse costs that note its
 // frontmatter and nothing else, because one bad file must not take down a
-// whole-vault command. `knapper.config.md` gets the opposite treatment. It
+// whole-vault command. `knapper.yaml` gets the opposite treatment. It
 // decides what every command does to every note, so a misspelt key there is
 // not a key that does nothing -- it is `exclude` silently switching off, or a
 // task marker silently reverting, with no output to say so. Everything below
@@ -128,7 +131,7 @@ fn as_string_list(value: Option<&serde_yaml::Value>) -> Vec<String> {
 
 /// What one setting may hold.
 enum Shape {
-    /// A string. `Some(values)` closes it to a set, matched case-insensitively.
+    /// A string. `Some(values)` closes it to a set.
     Text(Option<&'static [&'static str]>),
     Bool,
     /// A string, or a list of strings.
@@ -213,7 +216,7 @@ fn unknown_setting(path: &str, fields: &[(&str, Shape)]) -> anyhow::Error {
         return anyhow!(
             "`providers` is not vault configuration and is never run from a vault. \
              A provider command belongs to a machine, not to a set of notes: write it \
-             with `knapper providers set NAME -- COMMAND`, which keeps it in the local \
+             with `knapper provider set NAME -- COMMAND`, which keeps it in the local \
              provider config outside the vault."
         );
     }
@@ -249,11 +252,21 @@ fn check_block(
 }
 
 fn check_value(path: &str, value: &serde_yaml::Value, shape: &Shape) -> Result<()> {
-    // A key with nothing under it is a key the vault did not set: `exclude:`
-    // on its own, or `date_format:` clearing a default. Both are answers, not
-    // mistakes, and the loader below already reads them as such.
     if value.is_null() {
-        return Ok(());
+        // Null has a meaning only where the loader can distinguish it from a
+        // missing key: an empty path/target list, clearing a daily template,
+        // or clearing/inheriting one task-status attribute. Accepting it for
+        // every setting would make a typo silently select a default.
+        let status_attribute = path.starts_with("tasks.statuses.")
+            && (path.ends_with(".char")
+                || path.ends_with(".closed")
+                || path.ends_with(".date_format"));
+        if matches!(path, "exclude" | "ignore_links" | "daily_notes.template") || status_attribute {
+            return Ok(());
+        }
+        return Err(anyhow!(
+            "`{path}` must not be empty; omit it to use the default"
+        ));
     }
     match shape {
         Shape::Text(allowed) => {
@@ -264,12 +277,10 @@ fn check_value(path: &str, value: &serde_yaml::Value, shape: &Shape) -> Result<(
                 ));
             };
             match allowed {
-                Some(allowed) if !allowed.iter().any(|v| v.eq_ignore_ascii_case(text)) => {
-                    Err(anyhow!(
-                        "`{path}` must be {}, but it is `{text}`",
-                        allowed.join(" or ")
-                    ))
-                }
+                Some(allowed) if !allowed.contains(&text) => Err(anyhow!(
+                    "`{path}` must be {}, but it is `{text}`",
+                    allowed.join(" or ")
+                )),
                 _ => Ok(()),
             }
         }
@@ -438,52 +449,17 @@ fn check_statuses(settings: &serde_yaml::Mapping) -> Result<()> {
     Ok(())
 }
 
-/// True for a `---` block that closes on the very next line.
-///
-/// The note splitter does not recognise one: it looks for a closing fence at
-/// the start of a *later* line, and an empty block has none. Notes are left
-/// exactly as they were -- changing the splitter would change how every note
-/// in every vault is read -- so the config answers the question here, where
-/// it means one specific thing and nothing else is affected.
-fn is_empty_block(raw: &str) -> bool {
-    let Some(rest) = raw.strip_prefix("---") else {
-        return false;
-    };
-    let Some(rest) = rest
-        .strip_prefix('\n')
-        .or_else(|| rest.strip_prefix("\r\n"))
-    else {
-        return false;
-    };
-    let Some(after) = rest.strip_prefix("---") else {
-        return false;
-    };
-    after.is_empty() || after.starts_with(['\r', '\n'])
-}
-
-/// Read the config's settings, refusing what `split_frontmatter` forgives.
+/// Read the config's settings as a complete YAML document.
 fn config_settings(raw: &str) -> Result<serde_yaml::Mapping> {
-    // A vault that opens a block and closes it declares nothing, which is a
-    // config saying "every default". Refusing it would be strictness against
-    // a file that has nothing wrong with it.
-    if is_empty_block(raw) {
-        return Ok(serde_yaml::Mapping::new());
-    }
-    let Some((header, _)) = crate::note::split_frontmatter_raw(raw) else {
-        return Err(anyhow!(
-            "the settings live in a `---` block at the top of the file, and there is none here"
-        ));
-    };
-    match serde_yaml::from_str::<serde_yaml::Value>(header) {
+    match serde_yaml::from_str::<serde_yaml::Value>(raw) {
         Ok(serde_yaml::Value::Mapping(settings)) => Ok(settings),
-        // A config that declares nothing is a config, and every default
-        // applies. It is a header that means something else that is refused.
+        // An empty YAML document declares nothing, so every default applies.
         Ok(serde_yaml::Value::Null) => Ok(serde_yaml::Mapping::new()),
         Ok(other) => Err(anyhow!(
-            "the `---` block must be a set of settings, but it is {}",
+            "the config must be a set of settings, but it is {}",
             yaml_kind(&other)
         )),
-        Err(err) => Err(anyhow!("the `---` block is not valid YAML: {err}")),
+        Err(err) => Err(anyhow!("the config is not valid YAML: {err}")),
     }
 }
 
@@ -505,7 +481,7 @@ pub fn find_config(start: &Path) -> Option<PathBuf> {
     candidate.exists().then_some(candidate)
 }
 
-pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Result<Config> {
+pub fn config_path(explicit: Option<&str>) -> Result<PathBuf> {
     let path = match explicit {
         Some(p) => PathBuf::from(p),
         None => find_config(&std::env::current_dir()?)
@@ -516,6 +492,11 @@ pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Resu
             "Config file not found. Run 'knapper init' to create one."
         ));
     }
+    Ok(path)
+}
+
+pub fn load_config(explicit: Option<&str>, vault_override: Option<&str>) -> Result<Config> {
+    let path = config_path(explicit)?;
 
     let raw = std::fs::read_to_string(&path)?;
     // Every error from here names the file, so one message is enough to act
@@ -627,11 +608,8 @@ pub fn config_from(raw: &str) -> Result<Config> {
         tasks_created_date: tasks_bool("created_date", true),
         tasks_created_date_format: tasks_str("created_date_format", "➕ YYYY-MM-DD"),
         tasks_statuses,
-        // Both are validated case-insensitively, so both are lowered here:
-        // an accepted `Core` that then behaved as templater would be the
-        // silent fallback this validation exists to remove.
-        template_engine: get_str("template_engine", "templater").to_ascii_lowercase(),
-        flavor: get_str("flavor", "markdown").to_ascii_lowercase(),
+        template_engine: get_str("template_engine", "templater"),
+        flavor: get_str("flavor", "markdown"),
         exclude: as_string_list(get("exclude")),
         ignore_links: as_string_list(get("ignore_links")),
         lint_rules,
@@ -891,7 +869,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             fs::write(
                 dir.path().join(CONFIG_FILENAME),
-                format!("---\nvault_path: .\n{yaml}\n---\n"),
+                format!("vault_path: .\n{yaml}\n"),
             )
             .unwrap();
 
@@ -920,7 +898,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             fs::write(
                 dir.path().join(CONFIG_FILENAME),
-                format!("---\nvault_path: .\n{yaml}\n---\n"),
+                format!("vault_path: .\n{yaml}\n"),
             )
             .unwrap();
 
@@ -935,7 +913,7 @@ mod tests {
 
     // ------------------------------------------------- Strict validation --
 
-    /// Load a config written verbatim, header and all.
+    /// Load a config written verbatim as a complete YAML document.
     fn load(raw: &str) -> Result<Config> {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(CONFIG_FILENAME);
@@ -943,9 +921,9 @@ mod tests {
         load_config(Some(path.to_str().unwrap()), None)
     }
 
-    /// Load settings written inside a `---` block, which is the usual case.
+    /// Load settings written as a plain YAML document.
     fn settings(yaml: &str) -> Result<Config> {
-        load(&format!("---\n{yaml}\n---\n"))
+        load(yaml)
     }
 
     /// Every rejection must name the thing that is wrong. An error that says
@@ -1018,6 +996,10 @@ mod tests {
             "tasks:\n  statuses:\n    done:\n      closed: sometimes",
             &["`tasks.statuses.done.closed`"],
         );
+        refused(
+            "template_engine:",
+            &["`template_engine`", "must not be empty"],
+        );
     }
 
     /// Naming an engine or flavor knapper does not implement used to select
@@ -1029,35 +1011,28 @@ mod tests {
             &["`template_engine`", "templater or core"],
         );
         refused("flavor: obsidian", &["`flavor`", "markdown or logseq"]);
-        // The supported ones pass, in any case, and reach the config lowered
-        // so nothing downstream compares against the wrong spelling.
-        assert_eq!(
-            settings("template_engine: Core").unwrap().template_engine,
-            "core"
+        // The schema and runtime use the same lowercase spelling.
+        refused(
+            "template_engine: Core",
+            &["`template_engine`", "templater or core"],
         );
-        assert_eq!(settings("flavor: LogSeq").unwrap().flavor, "logseq");
+        refused("flavor: LogSeq", &["`flavor`", "markdown or logseq"]);
     }
 
     /// A note survives a header that does not parse. The file that decides
     /// which notes exist does not get the same forgiveness.
     #[test]
     fn a_malformed_config_is_refused_where_a_note_would_be_forgiven() {
-        for raw in [
-            "---\nkey: value: nested\n---\n",
-            "---\n\tbad indent\n---\n",
-            "---\ntitle: \u{2}broken\n---\n",
-        ] {
+        for raw in ["---\nfoo: [bar\n---\n", "---\nfoo: \"unterminated\n---\n"] {
             let err = format!("{}", load(raw).unwrap_err());
             assert!(err.contains("not valid YAML"), "{raw:?} -> {err:?}");
-            // The same header costs an ordinary note only its frontmatter.
+            // The same malformed YAML costs an ordinary note only its
+            // frontmatter.
             let (frontmatter, _) = crate::note::split_frontmatter(raw);
             assert!(frontmatter.is_empty(), "{raw:?}");
         }
 
-        let err = format!("{}", load("# Just prose\n").unwrap_err());
-        assert!(err.contains("`---` block"), "{err:?}");
-
-        let err = format!("{}", load("---\n- a list\n---\n").unwrap_err());
+        let err = format!("{}", load("- a list\n").unwrap_err());
         assert!(err.contains("set of settings"), "{err:?}");
     }
 
@@ -1155,7 +1130,7 @@ mod tests {
             &[
                 "`providers` is not vault configuration",
                 "never run from a vault",
-                "knapper providers set",
+                "knapper provider set",
             ],
         );
     }
@@ -1209,13 +1184,7 @@ mod tests {
     /// what a vault says, not about making it say something.
     #[test]
     fn an_empty_config_is_accepted_and_every_default_applies() {
-        for raw in [
-            "---\n---\n", // closes on the next line, declaring nothing
-            "---\r\n---\r\n",
-            "---\n---",     // and without the trailing newline
-            "---\n\n---\n", // a blank line between the fences
-            "---\n# only a comment\n---\n",
-        ] {
+        for raw in ["", "\n", "# only a comment\n"] {
             let config = load(raw).unwrap_or_else(|e| panic!("{raw:?}: {e}"));
             assert_eq!(config.template_engine, "templater");
             assert_eq!(config.flavor, "markdown");
@@ -1223,25 +1192,6 @@ mod tests {
             assert!(config.exclude.is_empty());
             assert_eq!(config.daily_folder, "Daily");
         }
-    }
-
-    /// The empty block is read by the config alone. Note frontmatter keeps
-    /// the behaviour it had, because the splitter it shares with every other
-    /// note was deliberately left untouched.
-    #[test]
-    fn reading_an_empty_config_block_did_not_change_how_notes_are_read() {
-        let (frontmatter, body) = crate::note::split_frontmatter("---\n---\n# Title\n");
-        assert!(frontmatter.is_empty());
-        assert_eq!(body, "---\n---\n# Title\n");
-    }
-
-    /// A fence that only looks empty is still read as a header, so a longer
-    /// rule cannot smuggle a config past validation.
-    #[test]
-    fn a_longer_rule_is_not_an_empty_block() {
-        assert!(!is_empty_block("---\n----\n"));
-        assert!(!is_empty_block("---\nexclude: logs\n---\n"));
-        assert!(!is_empty_block("# prose\n"));
     }
 
     /// The whole vocabulary, in one config, so the schema cannot drift out
@@ -1276,9 +1226,7 @@ mod tests {
         assert_eq!(config.tasks_statuses["forward"].char, Some('>'));
     }
 
-    /// `knapper init` must write a config `knapper init` can then read. The
-    /// generated file is prose as well as settings, so nothing else checks
-    /// that its frontmatter still answers to the schema.
+    /// `knapper init` must write a config `knapper init` can then read.
     #[test]
     fn the_generated_config_validates_against_the_schema() {
         let config = load(crate::notes_cmd::DEFAULT_CONFIG)

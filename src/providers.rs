@@ -2,7 +2,7 @@
 //!
 //! A vault says *which* provider holds a value. Only the local provider
 //! config says *what runs* for that provider, and it lives outside the vault
-//! on purpose: `knapper.config.md` travels with the notes, so a synced,
+//! on purpose: `knapper.yaml` travels with the notes, so a synced,
 //! shared or cloned vault could otherwise introduce a command. This file
 //! reads `$XDG_CONFIG_HOME/knapper/providers.yaml` and nothing else.
 //!

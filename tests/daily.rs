@@ -17,7 +17,7 @@ use tempfile::TempDir;
 /// search cannot reach the one belonging to whoever is running the suite.
 fn vault(config: &str) -> TempDir {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("knapper.config.md"), config).unwrap();
+    std::fs::write(dir.path().join("knapper.yaml"), config).unwrap();
     dir
 }
 
@@ -36,9 +36,9 @@ fn write(vault: &Path, relative: &str, body: &str) {
     std::fs::write(path, body).unwrap();
 }
 
-const CONFIGURED: &str = "---\nvault_path: .\ndaily_notes:\n  folder: Journal\n  \
-                          template: assets/daily.md\n---\n";
-const NO_TEMPLATE: &str = "---\nvault_path: .\ndaily_notes:\n  folder: Journal\n---\n";
+const CONFIGURED: &str = "vault_path: .\ndaily_notes:\n  folder: Journal\n  \
+                          template: assets/daily.md\n";
+const NO_TEMPLATE: &str = "vault_path: .\ndaily_notes:\n  folder: Journal\n";
 
 #[test]
 fn a_missing_configured_template_fails_and_creates_nothing() {
@@ -68,7 +68,7 @@ fn a_missing_configured_template_fails_and_creates_nothing() {
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(left, ["knapper.config.md"], "the vault gained files");
+    assert_eq!(left, ["knapper.yaml"], "the vault gained files");
 }
 
 /// `--path-only` and `--format json` are output flags, not dry runs: they

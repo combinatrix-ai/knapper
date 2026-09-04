@@ -157,7 +157,7 @@ pub fn orphans(config: &Config, format: &str, include_special: bool) -> Result<(
     let graph = build_link_graph(config);
 
     // A folder of templates is not special by name: a vault that does not
-    // want its templates counted excludes them in `knapper.config.md`, the
+    // want its templates counted excludes them in `knapper.yaml`, the
     // same way it hides any other subtree. Only hidden files are dropped
     // here, and `--include-special` is what asks for them back.
     let orphans: Vec<String> = graph

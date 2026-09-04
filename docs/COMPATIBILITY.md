@@ -95,7 +95,7 @@ Jekyll, Hugo, MkDocs, Quartz content directories.
 Support is deliberately partial: knapper reads the **file-level projection**
 of a Logseq graph and ignores block identity. See "Why not blocks" below.
 
-Set `flavor: logseq` in `knapper.config.md` to turn on the ambiguous parts.
+Set `flavor: logseq` in `knapper.yaml` to turn on the ambiguous parts.
 
 - ✅ **Page references** — `[[page]]`
 - ✅ Outline files parse as ordinary markdown; nesting is preserved as text
