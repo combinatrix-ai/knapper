@@ -314,7 +314,12 @@ enum Command {
     Frontmatter(FrontmatterCommand),
     /// Check vault health.
     Lint {
-        #[arg(long = "check")]
+        #[arg(
+            long = "check",
+            value_name = "RULE",
+            value_parser = ["broken-links", "orphans", "duplicates", "empty", "frontmatter"],
+            help = "Run one configured lint rule (repeatable)"
+        )]
         check: Vec<String>,
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,

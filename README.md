@@ -985,6 +985,16 @@ vault_path: .
 template_engine: templater   # or "core"
 exclude:
   - Templates/               # unexpanded templates are not notes
+lint:
+  rules:
+    broken-links:
+      enabled: true
+      # include: [Projects/]  # optional path-prefix scope
+      # exclude: [Projects/archive/]
+    # orphans:
+    #   enabled: false
+    # duplicates:
+    #   include: [Notes/]
 daily_notes:
   folder: Daily
   template: Templates/daily.md
@@ -996,6 +1006,22 @@ tasks:
 
 The generated file documents the rest, including custom task statuses.
 Nothing in it is Obsidian-specific.
+
+### Configuring lint rules
+
+`lint.rules` controls the five checks reported by `knapper lint`:
+`broken-links`, `orphans`, `duplicates`, `empty` and `frontmatter`. Every rule
+is enabled with no configuration, preserving the default all-checks report.
+Set `enabled: false` to omit a rule from a plain `knapper lint`; an explicit
+`knapper lint --check RULE` always runs that rule. `--check` may be repeated.
+
+`include` and `exclude` are optional vault-relative path-prefix lists. A file
+must be under at least one `include` prefix (an absent or empty list means all
+files), and `exclude` wins when both match. Broken links are filtered by their
+source file. The other file checks use the file being reported. Duplicate
+groups are kept only when at least two paths remain in scope, and only those
+paths are shown. Unknown rule names, fields and value types are configuration
+errors, as are unknown `--check` names.
 
 Every setting is checked when it is read. An unknown key, a key of the wrong
 type, or a `template_engine` or `flavor` knapper does not implement is an

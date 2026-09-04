@@ -9,6 +9,22 @@ exclude:                  # subtrees no whole-vault command should read
 # ignore_links:           # link targets that are meant to stay unresolved
 #   - Daily Tasks         # matched whole, case-insensitively, never as a
 #   - Archive/Old Index   # substring; write the path to ignore a path link
+# lint:
+#   rules:
+#     # Rules are enabled by default. A disabled rule is omitted from a plain
+#     # `knapper lint`, but `knapper lint --check RULE` still runs it.
+#     broken-links:
+#       enabled: true
+#       # include: [Projects/]  # source/file paths covered by this rule
+#       # exclude: [Projects/archive/]
+#     # orphans:
+#     #   enabled: false
+#     # duplicates:
+#     #   include: [Notes/]
+#     # empty:
+#     #   exclude: [Sources/]
+#     # frontmatter:
+#     #   enabled: false
 daily_notes:
   folder: Daily
   template: Templates/daily.md

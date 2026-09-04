@@ -541,6 +541,27 @@ knapper lint --check broken-links --format json
 knapper repair-links --dry-run   # which of those broken links could be repaired
 ```
 
+`knapper.config.md` can scope or disable the individual `lint` rules:
+
+```yaml
+lint:
+  rules:
+    broken-links:
+      enabled: true
+      include: [Projects/]
+      exclude: [Projects/archive/]
+    orphans:
+      enabled: false
+```
+
+With no `lint.rules` block every check is enabled. A disabled rule is omitted
+from a plain `knapper lint`, while an explicit `--check RULE` runs it anyway;
+the configured `include`/`exclude` path scope still applies. `include` matches
+vault-relative path prefixes (empty or absent means all), and `exclude` wins.
+Broken links use the source path; orphan, duplicate, empty and frontmatter
+checks use the reported file path. Unknown rule names/fields/types and unknown
+`--check` names are errors.
+
 ## Keeping knapper current
 
 ```bash
