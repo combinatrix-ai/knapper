@@ -12,7 +12,9 @@ use serde_json::{json, Value};
 
 use crate::graph::build_link_graph;
 use crate::note::{parse_note, split_frontmatter};
-use crate::vault::{all_notes, relative_path, resolve_path, Config};
+use crate::vault::{
+    all_notes, relative_path, resolve_path, Config, LintRuleConfig, LINT_RULE_NAMES,
+};
 
 fn print_json(value: &Value) {
     println!("{}", serde_json::to_string_pretty(value).unwrap());
@@ -743,17 +745,27 @@ pub fn frontmatter_get(config: &Config, file: &str, key: Option<&str>, format: &
 }
 
 pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
-    let all: Vec<String> = [
-        "broken-links",
-        "orphans",
-        "duplicates",
-        "empty",
-        "frontmatter",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-    let checks = if checks.is_empty() { &all } else { checks };
+    for check in checks {
+        if !LINT_RULE_NAMES.contains(&check.as_str()) {
+            return Err(anyhow!(
+                "unknown lint check `{check}`. Checks here: {}",
+                LINT_RULE_NAMES.join(", ")
+            ));
+        }
+    }
+
+    // A rule disabled in the vault is omitted only from the default run. An
+    // explicit --check is an intentional request and always runs, while the
+    // path scope remains in force in either mode.
+    let selected: Vec<&str> = if checks.is_empty() {
+        LINT_RULE_NAMES
+            .iter()
+            .copied()
+            .filter(|name| lint_rule(config, name).enabled)
+            .collect()
+    } else {
+        checks.iter().map(String::as_str).collect()
+    };
 
     let mut issues: Vec<Value> = Vec::new();
     let mut summary = serde_json::Map::new();
@@ -765,17 +777,25 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
 
     // The link graph reads every note, so build it at most once even though
     // two checks need it.
-    let graph = checks
+    let graph = selected
         .iter()
-        .any(|c| c == "broken-links" || c == "orphans")
+        .any(|c| *c == "broken-links" || *c == "orphans")
         .then(|| build_link_graph(config));
 
-    if checks.iter().any(|c| c == "broken-links") {
+    if selected.contains(&"broken-links") {
         let graph = graph.as_ref().unwrap();
-        let count: usize = graph.broken.values().map(|v| v.len()).sum();
+        let count: usize = graph
+            .broken
+            .iter()
+            .filter(|(file, _)| lint_rule(config, "broken-links").matches(file))
+            .map(|(_, links)| links.len())
+            .sum();
         summary.insert("broken_links".into(), json!(count));
         total += count;
         for (file, links) in &graph.broken {
+            if !lint_rule(config, "broken-links").matches(file) {
+                continue;
+            }
             for link in links {
                 issues.push(json!({
                     "type": "broken-link", "file": file,
@@ -792,7 +812,7 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
         }
     }
 
-    if checks.iter().any(|c| c == "orphans") {
+    if selected.contains(&"orphans") {
         let graph = graph.as_ref().unwrap();
         // As in `knapper orphans`: only hidden files are special here. A
         // folder of templates is hidden by `exclude`, not by its name.
@@ -800,6 +820,7 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
             .files
             .iter()
             .filter(|f| !f.starts_with('.'))
+            .filter(|f| lint_rule(config, "orphans").matches(f))
             .filter(|f| graph.incoming.get(*f).map_or(true, |i| i.is_empty()))
             .collect();
         summary.insert("orphans".into(), json!(orphans.len()));
@@ -824,17 +845,23 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
 
     let notes = all_notes(config);
 
-    if checks.iter().any(|c| c == "duplicates") {
+    if selected.contains(&"duplicates") {
         let mut by_stem: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for path in &notes {
+            let relative = relative_path(&config.vault_path, path);
+            if !lint_rule(config, "duplicates").matches(&relative) {
+                continue;
+            }
             let stem = path
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_lowercase())
                 .unwrap_or_default();
-            by_stem
-                .entry(stem)
-                .or_default()
-                .push(relative_path(&config.vault_path, path));
+            by_stem.entry(stem).or_default().push(relative);
+        }
+        // all_notes is newest-first for callers that care about recency. A
+        // lint report should instead be stable between runs and clones.
+        for paths in by_stem.values_mut() {
+            paths.sort();
         }
         let dups: Vec<_> = by_stem.iter().filter(|(_, v)| v.len() > 1).collect();
         summary.insert("duplicates".into(), json!(dups.len()));
@@ -855,10 +882,13 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
         }
     }
 
-    if checks.iter().any(|c| c == "empty") {
+    if selected.contains(&"empty") {
         let mut empty = Vec::new();
         for path in &notes {
             let relative = relative_path(&config.vault_path, path);
+            if !lint_rule(config, "empty").matches(&relative) {
+                continue;
+            }
             let Ok(content) = std::fs::read_to_string(path) else {
                 continue;
             };
@@ -885,10 +915,13 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
         }
     }
 
-    if checks.iter().any(|c| c == "frontmatter") {
+    if selected.contains(&"frontmatter") {
         let mut missing = Vec::new();
         for path in &notes {
             let relative = relative_path(&config.vault_path, path);
+            if !lint_rule(config, "frontmatter").matches(&relative) {
+                continue;
+            }
             let Ok(content) = std::fs::read_to_string(path) else {
                 continue;
             };
@@ -917,6 +950,13 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
         println!("\nTotal issues: {total}");
     }
     Ok(())
+}
+
+/// Configs loaded from disk contain every rule, but keeping the fallback here
+/// preserves the all-enabled behaviour for callers constructing `Config`
+/// directly in tests or embedding the command.
+fn lint_rule(config: &Config, name: &str) -> LintRuleConfig {
+    config.lint_rules.get(name).cloned().unwrap_or_default()
 }
 
 /// Moment-style tokens, which is what both Templater and Core Templates use.

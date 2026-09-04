@@ -8,6 +8,50 @@ use walkdir::WalkDir;
 pub const CONFIG_FILENAME: &str = "knapper.config.md";
 pub const DEFAULT_EXTENSIONS: &[&str] = &["md", "markdown", "mdx", "org"];
 
+/// The checks exposed by `knapper lint`, in the order used by its reports.
+pub const LINT_RULE_NAMES: &[&str] = &[
+    "broken-links",
+    "orphans",
+    "duplicates",
+    "empty",
+    "frontmatter",
+];
+
+/// The configuration for one lint check.
+///
+/// A missing rule block has the same value as this default. `include` is an
+/// allow-list of vault-relative path prefixes; `exclude` wins when both match.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LintRuleConfig {
+    pub enabled: bool,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+}
+
+impl Default for LintRuleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            include: Vec::new(),
+            exclude: Vec::new(),
+        }
+    }
+}
+
+impl LintRuleConfig {
+    pub fn matches(&self, relative: &str) -> bool {
+        (self.include.is_empty() || is_excluded(relative, &self.include))
+            && !is_excluded(relative, &self.exclude)
+    }
+}
+
+fn default_lint_rules() -> std::collections::BTreeMap<String, LintRuleConfig> {
+    LINT_RULE_NAMES
+        .iter()
+        .map(|name| ((*name).to_string(), LintRuleConfig::default()))
+        .collect()
+}
+
 /// A status override or addition from config. `date_format_set` records that
 /// the key was present, so an explicit null can clear the default.
 #[derive(Debug, Clone, Default)]
@@ -25,6 +69,7 @@ pub struct Config {
     pub flavor: String,
     pub exclude: Vec<String>,
     pub ignore_links: Vec<String>,
+    pub lint_rules: std::collections::BTreeMap<String, LintRuleConfig>,
     pub daily_folder: String,
     /// The template a daily note is created from, exactly as the vault wrote
     /// it. `None` means the vault named none: only then is a bare dated note
@@ -46,6 +91,7 @@ impl Default for Config {
             flavor: "markdown".into(),
             exclude: Vec::new(),
             ignore_links: Vec::new(),
+            lint_rules: default_lint_rules(),
             daily_folder: "Daily".into(),
             daily_template: None,
             daily_format: "YYYY-MM-DD".into(),
@@ -91,6 +137,10 @@ enum Shape {
     Fields(&'static [(&'static str, Shape)]),
     /// A block whose keys the vault chooses, each holding the same fields.
     Named(&'static [(&'static str, Shape)]),
+    /// A block whose keys are a fixed, documented set of names, each holding
+    /// the same fields. This is stricter than `Named`, which is used for
+    /// user-defined task statuses.
+    NamedFixed(&'static [&'static str], &'static [(&'static str, Shape)]),
 }
 
 /// The engines `templater::expand` actually implements.
@@ -122,12 +172,21 @@ const DAILY_NOTES: &[(&str, Shape)] = &[
     ("format", Shape::Text(None)),
 ];
 
+const LINT_RULE: &[(&str, Shape)] = &[
+    ("enabled", Shape::Bool),
+    ("include", Shape::TextList),
+    ("exclude", Shape::TextList),
+];
+
+const LINT: &[(&str, Shape)] = &[("rules", Shape::NamedFixed(LINT_RULE_NAMES, LINT_RULE))];
+
 const SETTINGS: &[(&str, Shape)] = &[
     ("vault_path", Shape::Text(None)),
     ("template_engine", Shape::Text(Some(TEMPLATE_ENGINES))),
     ("flavor", Shape::Text(Some(FLAVORS))),
     ("exclude", Shape::TextList),
     ("ignore_links", Shape::TextList),
+    ("lint", Shape::Fields(LINT)),
     ("daily_notes", Shape::Fields(DAILY_NOTES)),
     ("tasks", Shape::Fields(TASKS)),
 ];
@@ -261,6 +320,30 @@ fn check_value(path: &str, value: &serde_yaml::Value, shape: &Shape) -> Result<(
                         yaml_kind(name)
                     ));
                 };
+                check_value(&format!("{path}.{name}"), entry, &Shape::Fields(fields))?;
+            }
+            Ok(())
+        }
+        Shape::NamedFixed(names, fields) => {
+            let Some(block) = value.as_mapping() else {
+                return Err(anyhow!(
+                    "`{path}` must be a block of settings, but it is {}",
+                    yaml_kind(value)
+                ));
+            };
+            for (name, entry) in block {
+                let Some(name) = name.as_str() else {
+                    return Err(anyhow!(
+                        "`{path}` is keyed by rule names, but one of its keys is {}",
+                        yaml_kind(name)
+                    ));
+                };
+                if !names.contains(&name) {
+                    return Err(anyhow!(
+                        "unknown setting `{path}.{name}`. Rules here: {}",
+                        names.join(", ")
+                    ));
+                }
                 check_value(&format!("{path}.{name}"), entry, &Shape::Fields(fields))?;
             }
             Ok(())
@@ -489,6 +572,30 @@ pub fn config_from(raw: &str) -> Result<Config> {
     let tasks_bool =
         |key: &str, fallback: bool| tasks_get(key).and_then(|v| v.as_bool()).unwrap_or(fallback);
 
+    let mut lint_rules = default_lint_rules();
+    if let Some(rules) = get("lint")
+        .and_then(|v| v.as_mapping())
+        .and_then(|lint| lint.get(serde_yaml::Value::String("rules".into())))
+        .and_then(|v| v.as_mapping())
+    {
+        for (name, attrs) in rules {
+            let (Some(name), Some(attrs)) = (name.as_str(), attrs.as_mapping()) else {
+                continue;
+            };
+            let field = |key: &str| attrs.get(serde_yaml::Value::String(key.into()));
+            lint_rules.insert(
+                name.to_string(),
+                LintRuleConfig {
+                    enabled: field("enabled")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(true),
+                    include: as_string_list(field("include")),
+                    exclude: as_string_list(field("exclude")),
+                },
+            );
+        }
+    }
+
     let mut tasks_statuses = std::collections::BTreeMap::new();
     if let Some(map) = tasks_get("statuses").and_then(|v| v.as_mapping()) {
         for (name, attrs) in map {
@@ -527,6 +634,7 @@ pub fn config_from(raw: &str) -> Result<Config> {
         flavor: get_str("flavor", "markdown").to_ascii_lowercase(),
         exclude: as_string_list(get("exclude")),
         ignore_links: as_string_list(get("ignore_links")),
+        lint_rules,
         daily_folder: daily_get("folder", "Daily"),
         daily_template: daily_raw("template"),
         daily_format: daily_get("format", "YYYY-MM-DD"),
@@ -1049,6 +1157,51 @@ mod tests {
                 "never run from a vault",
                 "knapper providers set",
             ],
+        );
+    }
+
+    #[test]
+    fn lint_rules_default_to_all_enabled_and_match_every_path() {
+        let config = settings("").unwrap();
+        assert_eq!(config.lint_rules.len(), LINT_RULE_NAMES.len());
+        for name in LINT_RULE_NAMES {
+            let rule = &config.lint_rules[*name];
+            assert!(rule.enabled, "{name}");
+            assert!(rule.matches("any/path.md"), "{name}");
+        }
+    }
+
+    #[test]
+    fn lint_rule_scopes_are_prefixes_and_exclude_wins() {
+        let config = settings(
+            "lint:\n  rules:\n    broken-links:\n      enabled: false\n      include:\n        - Projects/\n      exclude:\n        - Projects/archive/\n",
+        )
+        .unwrap();
+        let rule = &config.lint_rules["broken-links"];
+        assert!(!rule.enabled);
+        assert!(rule.matches("Projects/Thesis.md"));
+        assert!(!rule.matches("Projects/archive/old.md"));
+        assert!(!rule.matches("Projects-old/Thesis.md"));
+        assert!(!rule.matches("Notes/Thesis.md"));
+    }
+
+    #[test]
+    fn lint_rule_names_fields_and_types_are_strict() {
+        refused(
+            "lint:\n  rules:\n    broken: {}",
+            &["`lint.rules.broken`", "broken-links"],
+        );
+        refused(
+            "lint:\n  rules:\n    empty:\n      misspelled: true",
+            &["`lint.rules.empty.misspelled`", "enabled"],
+        );
+        refused(
+            "lint:\n  rules:\n    orphans:\n      enabled: yes please",
+            &["`lint.rules.orphans.enabled`", "true or false"],
+        );
+        refused(
+            "lint:\n  rules:\n    frontmatter:\n      include:\n        - Notes/\n        - 7",
+            &["`lint.rules.frontmatter.include` entry 2", "number"],
         );
     }
 
