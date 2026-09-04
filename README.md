@@ -609,7 +609,10 @@ knapper repair-links --dry-run --format json
 ```
 
 - `status` is `safe`, `ambiguous` or `unresolved`; `reason` is `missing-note`,
-  `missing-path`, `missing-date`, `numeric-label` or `org-link`.
+  `missing-path`, `missing-date`, `missing-heading`, `missing-block`,
+  `numeric-label` or `org-link`. A missing heading or block ID is reported but
+  never offered a repair candidate: the filesystem cannot infer its intended
+  destination.
 - `column` is 1-based and counted in **characters**, so a line of Japanese
   reports the column a reader would count. It is `null` for org, whose masking
   does not preserve byte offsets — the line is exact, the column is not
@@ -952,7 +955,7 @@ shell, so use an absolute executable path (for example
 | `knapper links FILE` | Outgoing links from a file |
 | `knapper orphans` | Notes no other note links to |
 | `knapper hubs` | Most-linked-to notes |
-| `knapper broken-links` | Links to non-existent notes, one record per occurrence |
+| `knapper broken-links` | Links to missing notes, headings or block IDs, one record per occurrence |
 | `knapper repair-links --dry-run` | Plan repairs for broken links; never writes |
 | `knapper rename OLD NEW` | Rename a note and update all links |
 | `knapper move SRC DEST` | Move a note or a directory and update all links |

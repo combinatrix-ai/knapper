@@ -372,7 +372,7 @@ fn the_occurrence_scan_and_the_graph_count_the_same_broken_links() {
         [
             "Missing Property",
             "Missing",
-            "Missing Anchor",
+            "Missing Anchor#section",
             "Missing Alias",
             "Missing Embed",
             "Missing Field",

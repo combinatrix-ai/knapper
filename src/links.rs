@@ -22,7 +22,7 @@ use crate::parser::mask_noncontent;
 
 // [[target#anchor|alias]], optionally embedded.
 static WIKI: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(!)?\[\[([^\[\]|#^]+)((?:#|\^)[^\[\]|]*)?(\|[^\[\]]*)?\]\]").unwrap()
+    Regex::new(r"(!)?\[\[([^\[\]|#^]*?)((?:#|\^)[^\[\]|]*)?(\|[^\[\]]*)?\]\]").unwrap()
 });
 
 /// What a bare markdown destination may contain, shared by every pattern in
@@ -112,14 +112,49 @@ pub fn scan_links(content: &str) -> Vec<RawLink> {
 
     for c in WIKI.captures_iter(&masked) {
         let whole = c.get(0).unwrap();
+        let mut path = c
+            .get(2)
+            .map(|m| m.as_str().trim().to_string())
+            .unwrap_or_default();
+        let mut anchor = c
+            .get(3)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let mut alias = c
+            .get(4)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        // Inside a Markdown table Obsidian escapes the alias separator as
+        // `\|`. The backslash protects table syntax; it is not part of the
+        // note path or anchor. Keep it with the alias so rewrites round-trip.
+        if !alias.is_empty() {
+            let escaped = if anchor.ends_with('\\') {
+                anchor.pop();
+                true
+            } else if path.ends_with('\\') {
+                path.pop();
+                true
+            } else {
+                false
+            };
+            if escaped {
+                alias.insert(0, '\\');
+            }
+        }
+        // Do not turn an empty pair of brackets into a local anchor. A
+        // leading `#`/`^` is intentionally allowed so anchor-only links can
+        // be validated against the note that contains them.
+        if path.is_empty() && anchor.is_empty() {
+            continue;
+        }
         links.push(RawLink {
             range: whole.range(),
             kind: Kind::Wiki,
             embed: c.get(1).is_some(),
             label: String::new(),
-            path: c[2].trim().to_string(),
-            anchor: c.get(3).map(|m| m.as_str().to_string()).unwrap_or_default(),
-            alias: c.get(4).map(|m| m.as_str().to_string()).unwrap_or_default(),
+            path,
+            anchor,
+            alias,
             title: String::new(),
             angle: false,
         });
@@ -136,16 +171,16 @@ pub fn scan_links(content: &str) -> Vec<RawLink> {
         }
         let angle = c.get(3).is_some();
         let href = c.get(3).or_else(|| c.get(4)).unwrap().as_str();
-        if EXTERNAL_SCHEME.is_match(href) || href.starts_with('#') || href.starts_with("//") {
+        if EXTERNAL_SCHEME.is_match(href) || href.starts_with("//") {
             continue;
         }
         // Obsidian writes a block reference as Note.md#^id, so the anchor
         // starts at the first '#' and everything before it is the path.
         let (path, anchor) = match href.find('#') {
-            Some(index) if index > 0 => (&href[..index], &href[index..]),
+            Some(index) => (&href[..index], &href[index..]),
             _ => (href, ""),
         };
-        if path.is_empty() {
+        if path.is_empty() && anchor.is_empty() {
             continue;
         }
         links.push(RawLink {
@@ -376,6 +411,19 @@ related: \"[[Docs/README]]\"
                 "![alt](Docs/pic.png)",
             ]
         );
+    }
+
+    #[test]
+    fn table_escaped_alias_separator_is_not_part_of_the_target() {
+        let links = scan_links("| [[#Heading\\|label]] | [[Note\\|alias]] |\n");
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].path, "");
+        assert_eq!(links[0].anchor, "#Heading");
+        assert_eq!(links[0].alias, "\\|label");
+        assert_eq!(render(&links[0], ""), "[[#Heading\\|label]]");
+        assert_eq!(links[1].path, "Note");
+        assert_eq!(links[1].alias, "\\|alias");
+        assert_eq!(render(&links[1], "Other"), "[[Other\\|alias]]");
     }
 
     /// A position is reported the way a reader counts it: lines from one,

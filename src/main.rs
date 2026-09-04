@@ -226,7 +226,7 @@ enum Command {
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
-    /// Find broken links (links to non-existent notes).
+    /// Find links to missing notes, headings, or block IDs.
     #[command(name = "broken-links")]
     BrokenLinks {
         #[arg(short = 'f', long = "format", default_value = "text")]

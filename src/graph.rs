@@ -5,10 +5,17 @@ use std::path::{Component, Path};
 
 use rayon::prelude::*;
 
+use crate::links::{scan_links, Kind, RawLink};
 use crate::note::parse_note;
 use crate::org;
-use crate::parser::strip_anchor;
+use crate::parser::{
+    anchor_kind, extract_anchor_inventory, normalize_markdown_path, normalize_wikilink_target,
+    strip_anchor, AnchorInventory, AnchorKind,
+};
 use crate::vault::{all_files, all_notes, is_org, relative_path, Config, DEFAULT_EXTENSIONS};
+
+pub const MISSING_HEADING: &str = "missing-heading";
+pub const MISSING_BLOCK: &str = "missing-block";
 
 /// Resolves link targets to vault-relative paths.
 ///
@@ -26,6 +33,7 @@ pub struct LinkResolver {
     // which org resolves across every file.
     by_id: HashMap<String, String>,
     by_heading: HashMap<String, String>,
+    markdown_anchors: HashMap<String, AnchorInventory>,
 }
 
 impl LinkResolver {
@@ -58,7 +66,13 @@ impl LinkResolver {
                 .collect(),
             by_id: ids.into_iter().collect(),
             by_heading: headings.into_iter().collect(),
+            markdown_anchors: HashMap::new(),
         }
+    }
+
+    fn with_markdown_anchors(mut self, markdown_anchors: HashMap<String, AnchorInventory>) -> Self {
+        self.markdown_anchors = markdown_anchors;
+        self
     }
 
     pub fn resolve(&self, source: &str, target: &str) -> Option<String> {
@@ -146,6 +160,21 @@ impl LinkResolver {
             }
         }
         self.by_path.get(&target.to_lowercase()).cloned()
+    }
+
+    /// Return the anchor-specific reason when `anchor` is absent from a
+    /// resolved Markdown note. Non-Markdown targets have no Markdown anchor
+    /// inventory and are left to their own viewer instead of being guessed at.
+    pub fn missing_anchor_reason(&self, resolved: &str, anchor: &str) -> Option<&'static str> {
+        let inventory = self.markdown_anchors.get(resolved)?;
+        if inventory.contains(anchor) {
+            return None;
+        }
+        match anchor_kind(anchor) {
+            Some(AnchorKind::Heading(_)) => Some(MISSING_HEADING),
+            Some(AnchorKind::Block(_)) => Some(MISSING_BLOCK),
+            None => None,
+        }
     }
 }
 
@@ -250,10 +279,65 @@ pub struct LinkGraph {
 
 struct Parsed {
     relative: String,
-    links: Vec<String>,
+    links: Vec<ParsedLink>,
     aliases: Vec<String>,
     ids: Vec<String>,
     headings: Vec<String>,
+}
+
+#[derive(Debug)]
+struct ParsedLink {
+    /// Normalized note path. `None` means an anchor in the current note.
+    target: Option<String>,
+    /// Empty, `#heading`, `#^block-id`, or `^block-id`.
+    anchor: String,
+}
+
+pub(crate) struct MarkdownLinkOccurrence {
+    pub link: RawLink,
+    pub target: Option<String>,
+}
+
+fn markdown_links_with_known(content: &str, mut known: Vec<String>) -> Vec<MarkdownLinkOccurrence> {
+    scan_links(content)
+        .into_iter()
+        .filter(|link| !(link.embed && link.kind == Kind::Markdown))
+        .filter_map(|link| {
+            let target = if link.path.is_empty() {
+                None
+            } else {
+                match link.kind {
+                    Kind::Wiki => normalize_wikilink_target(&link.path),
+                    Kind::Markdown => normalize_markdown_path(&link.path),
+                }
+            };
+
+            // `parse_note` applies semantic frontmatter rules (for example,
+            // a wikilink-shaped YAML tag is not a link). Consume the matching
+            // occurrence so this position-preserving scan agrees without
+            // losing local anchors, which intentionally have no path.
+            if let Some(target) = &target {
+                let index = known.iter().position(|known| known == target)?;
+                known.remove(index);
+            } else if !link.path.is_empty() || link.anchor.is_empty() {
+                return None;
+            }
+
+            Some(MarkdownLinkOccurrence { link, target })
+        })
+        .collect()
+}
+
+pub(crate) fn markdown_link_occurrences(path: &Path, content: &str) -> Vec<MarkdownLinkOccurrence> {
+    let known = parse_note(path, content).links;
+    markdown_links_with_known(content, known)
+}
+
+fn broken_target(target: Option<&str>, anchor: &str) -> String {
+    match target {
+        Some(target) => format!("{target}{anchor}"),
+        None => anchor.to_string(),
+    }
 }
 
 /// Read every note once, and build the resolver from what they declare.
@@ -263,9 +347,30 @@ struct Parsed {
 /// first target is looked up.
 fn scan_vault(config: &Config) -> (Vec<Parsed>, BTreeSet<String>, LinkResolver) {
     let paths = all_notes(config);
-    let target_files: BTreeSet<String> = all_files(config)
+    let disk_files = all_files(config);
+    let target_files: BTreeSet<String> = disk_files
         .iter()
         .map(|path| relative_path(&config.vault_path, path))
+        .collect();
+
+    // Excluded notes remain valid path-qualified destinations, so their
+    // headings and blocks must be available to anchor validation too.
+    let markdown_anchors: HashMap<String, AnchorInventory> = disk_files
+        .par_iter()
+        .filter(|path| {
+            path.extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| {
+                    matches!(ext.to_ascii_lowercase().as_str(), "md" | "markdown" | "mdx")
+                })
+        })
+        .filter_map(|path| {
+            let content = std::fs::read_to_string(path).ok()?;
+            Some((
+                relative_path(&config.vault_path, path),
+                extract_anchor_inventory(&content),
+            ))
+        })
         .collect();
 
     let parsed: Vec<Parsed> = paths
@@ -278,7 +383,14 @@ fn scan_vault(config: &Config) -> (Vec<Parsed>, BTreeSet<String>, LinkResolver) 
                 let doc = org::parse_org(&content);
                 return Some(Parsed {
                     relative,
-                    links: doc.links,
+                    links: doc
+                        .links
+                        .into_iter()
+                        .map(|target| ParsedLink {
+                            target: Some(target),
+                            anchor: String::new(),
+                        })
+                        .collect(),
                     aliases: doc.aliases,
                     ids: doc.ids,
                     headings: doc
@@ -293,7 +405,13 @@ fn scan_vault(config: &Config) -> (Vec<Parsed>, BTreeSet<String>, LinkResolver) 
             let note = parse_note(path, &content);
             Some(Parsed {
                 relative,
-                links: note.links,
+                links: markdown_links_with_known(&content, note.links)
+                    .into_iter()
+                    .map(|occurrence| ParsedLink {
+                        target: occurrence.target,
+                        anchor: occurrence.link.anchor,
+                    })
+                    .collect(),
                 aliases: note.aliases,
                 ids: Vec::new(),
                 headings: Vec::new(),
@@ -322,7 +440,8 @@ fn scan_vault(config: &Config) -> (Vec<Parsed>, BTreeSet<String>, LinkResolver) 
         }
     }
 
-    let resolver = LinkResolver::new(files.clone(), target_files, aliases, ids, headings);
+    let resolver = LinkResolver::new(files.clone(), target_files, aliases, ids, headings)
+        .with_markdown_anchors(markdown_anchors);
     (parsed, files, resolver)
 }
 
@@ -344,28 +463,51 @@ pub fn build_link_graph(config: &Config) -> LinkGraph {
     let ignored = IgnoredLinks::new(&config.ignore_links);
 
     for entry in &parsed {
-        for target in &entry.links {
-            match resolver.resolve(&entry.relative, target) {
+        for link in &entry.links {
+            let resolved = match link.target.as_deref() {
+                Some(target) => resolver.resolve(&entry.relative, target),
+                None => Some(entry.relative.clone()),
+            };
+            match resolved {
                 Some(resolved) => {
-                    graph
-                        .outgoing
-                        .entry(entry.relative.clone())
-                        .or_default()
-                        .insert(resolved.clone());
-                    graph
-                        .incoming
-                        .entry(resolved)
-                        .or_default()
-                        .insert(entry.relative.clone());
+                    // An anchor-only link is navigation within one note, not
+                    // a graph edge. A path-qualified link remains an edge even
+                    // when its anchor is missing: the note relation is real.
+                    if link.target.is_some() {
+                        graph
+                            .outgoing
+                            .entry(entry.relative.clone())
+                            .or_default()
+                            .insert(resolved.clone());
+                        graph
+                            .incoming
+                            .entry(resolved.clone())
+                            .or_default()
+                            .insert(entry.relative.clone());
+                    }
+                    if !link.anchor.is_empty()
+                        && resolver
+                            .missing_anchor_reason(&resolved, &link.anchor)
+                            .is_some()
+                    {
+                        graph
+                            .broken
+                            .entry(entry.relative.clone())
+                            .or_default()
+                            .push(broken_target(link.target.as_deref(), &link.anchor));
+                    }
                 }
                 // An unresolved link the config named is not a finding. It
                 // still resolves to nothing, so it becomes no edge either.
-                _ if ignored.contains(target) => {}
+                _ if link
+                    .target
+                    .as_deref()
+                    .is_some_and(|target| ignored.contains(target)) => {}
                 _ => graph
                     .broken
                     .entry(entry.relative.clone())
                     .or_default()
-                    .push(target.clone()),
+                    .push(broken_target(link.target.as_deref(), &link.anchor)),
             }
         }
     }

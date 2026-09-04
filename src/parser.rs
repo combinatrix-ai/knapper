@@ -5,7 +5,7 @@
 //! to, so this file is a translation of a specification rather than a
 //! reinterpretation.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use percent_encoding::percent_decode_str;
@@ -43,6 +43,15 @@ static INLINE_CODE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`[^`\n]+`").
 static OBSIDIAN_COMMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)%%.*?%%").unwrap());
 static OUTLINER_MACRO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)\{\{.*?\}\}").unwrap());
 static BLOCK_REF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\(\([^)\n]+\)\)").unwrap());
+
+// Markdown headings and Obsidian block IDs are indexed from the masked body,
+// so links in code fences, inline code, and comments never become anchors.
+static ATX_HEADING: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[ \t]{0,3}#{1,6}(?:[ \t]+(.*?)[ \t]*|[ \t]*)$").unwrap());
+static SETEXT_HEADING: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[ \t]{0,3}(?:=+|-+)[ \t]*$").unwrap());
+static BLOCK_ID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:^|[ \t])\^([A-Za-z0-9_-]+)[ \t]*$").unwrap());
 
 // Dataview inline fields, which are also Logseq properties.
 static INLINE_FIELD_BRACKETED: LazyLock<Regex> = LazyLock::new(|| {
@@ -235,11 +244,127 @@ pub fn strip_anchor(target: &str) -> String {
 ///
 /// `None` means the brackets held nothing to resolve.
 pub fn normalize_wikilink_target(inner: &str) -> Option<String> {
+    // `[[#Heading]]` and `[[^block-id]]` navigate within the current note.
+    // They name no other note, so the path portion normalizes to `None`; the
+    // occurrence scanner keeps their anchor for validation.
+    let inner = inner.trim();
+    if inner.starts_with('#') || inner.starts_with('^') {
+        return None;
+    }
     // Roam exports write a link wrapped in a link, [[[[Ideas]]]];
     // the extra brackets are not part of the name.
     let target = strip_anchor(inner);
     let target = target.trim_matches(['[', ']']).trim().to_string();
     (!target.is_empty()).then_some(target)
+}
+
+/// The kind of an Obsidian/Markdown anchor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnchorKind {
+    Heading(String),
+    Block(String),
+}
+
+/// Classify the anchor portion kept by `links::RawLink`.
+///
+/// Obsidian accepts both `^id` and `#^id` for block references. A normal
+/// `#text` reference is a heading. Empty anchors are unknown and therefore
+/// cannot accidentally validate.
+pub fn anchor_kind(anchor: &str) -> Option<AnchorKind> {
+    let decoded = percent_decode_str(anchor).decode_utf8_lossy();
+    let anchor = decoded.trim();
+    let anchor = anchor.strip_prefix('#').unwrap_or(anchor);
+    if let Some(id) = anchor.strip_prefix('^') {
+        let id = id.trim();
+        return (!id.is_empty()).then(|| AnchorKind::Block(id.to_lowercase()));
+    }
+    let heading = anchor.trim();
+    (!heading.is_empty()).then(|| AnchorKind::Heading(normalize_heading(heading)))
+}
+
+/// The anchors declared by one Markdown note.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AnchorInventory {
+    pub headings: BTreeSet<String>,
+    pub blocks: BTreeSet<String>,
+}
+
+impl AnchorInventory {
+    pub fn contains(&self, anchor: &str) -> bool {
+        match anchor_kind(anchor) {
+            Some(AnchorKind::Heading(heading)) => self.headings.contains(&heading),
+            Some(AnchorKind::Block(id)) => self.blocks.contains(&id),
+            None => false,
+        }
+    }
+}
+
+/// Normalize the visible text of a Markdown heading for Obsidian-style
+/// anchor matching. Closing `#` decoration is removed only when separated by
+/// whitespace, so a heading such as `C#` remains unchanged.
+pub fn normalize_heading(text: &str) -> String {
+    let trimmed = text.trim();
+    let mut suffix_start = trimmed.len();
+    while suffix_start > 0 {
+        let (index, ch) = trimmed[..suffix_start].char_indices().next_back().unwrap();
+        if ch == '#' {
+            suffix_start = index;
+        } else {
+            break;
+        }
+    }
+    let normalized = if suffix_start < trimmed.len()
+        && trimmed[..suffix_start]
+            .chars()
+            .last()
+            .is_some_and(char::is_whitespace)
+    {
+        trimmed[..suffix_start].trim_end()
+    } else {
+        trimmed
+    };
+    normalized.to_lowercase()
+}
+
+/// Extract Markdown headings and block IDs from a note.
+///
+/// Frontmatter is removed before masking. The same content mask used by link
+/// and tag parsing then excludes closed code fences and Obsidian comments,
+/// while preserving line structure for setext headings and block IDs.
+pub fn extract_anchor_inventory(content: &str) -> AnchorInventory {
+    let (_, body) = crate::note::split_frontmatter(content);
+    let masked = mask_noncontent(body);
+    let lines: Vec<&str> = masked.split('\n').collect();
+    let mut inventory = AnchorInventory::default();
+
+    for (index, line) in lines.iter().enumerate() {
+        if let Some(captures) = ATX_HEADING.captures(line) {
+            if let Some(text) = captures
+                .get(1)
+                .map(|m| m.as_str())
+                .filter(|s| !s.trim().is_empty())
+            {
+                inventory.headings.insert(normalize_heading(text));
+            }
+        }
+
+        // Setext headings are a non-empty prose line immediately followed by
+        // `===` or `---`. The frontmatter delimiter is already outside body.
+        if index + 1 < lines.len()
+            && SETEXT_HEADING.is_match(lines[index + 1])
+            && !line.trim().is_empty()
+        {
+            inventory.headings.insert(normalize_heading(line));
+        }
+
+        if let Some(captures) = BLOCK_ID.captures(line) {
+            if let Some(id) = captures.get(1) {
+                inventory.blocks.insert(id.as_str().to_lowercase());
+            }
+        }
+    }
+
+    inventory
 }
 
 /// The resolvable target of a markdown href that is already percent-decoded
@@ -403,11 +528,37 @@ mod tests {
             ("[[Note#heading]]", vec!["Note"]),
             ("[[Note^block-id]]", vec!["Note"]),
             ("[[Note#heading|alias]]", vec!["Note"]),
+            ("[[#heading]]", vec![]),
+            ("[[#heading|label]]", vec![]),
+            ("[[^block-id]]", vec![]),
             ("[[A]] and [[B]]", vec!["A", "B"]),
             ("no links here", vec![]),
         ] {
             assert_eq!(extract_wikilinks(content), expected, "input: {content}");
         }
+    }
+
+    #[test]
+    fn extracts_real_markdown_anchors_only() {
+        let inventory = extract_anchor_inventory(
+            "---\nheading: '# Not frontmatter'\n---\n\n\
+             # Main Heading ###\n\n\
+             Setext Heading\n--------------\n\n\
+             A paragraph. ^Block_ID\n\n\
+             ```md\n# Not code\ntext ^not-code\n```\n\n\
+             %% ## Not comment\ntext ^not-comment %%\n",
+        );
+
+        assert!(inventory.contains("#main heading"));
+        assert!(inventory.contains("#Main Heading ###"));
+        assert!(inventory.contains("#Setext Heading"));
+        assert!(inventory.contains("#Setext%20Heading"));
+        assert!(inventory.contains("#^block_id"));
+        assert!(!inventory.contains("#Not frontmatter"));
+        assert!(!inventory.contains("#Not code"));
+        assert!(!inventory.contains("^not-code"));
+        assert!(!inventory.contains("#Not comment"));
+        assert!(!inventory.contains("^not-comment"));
     }
 
     #[test]

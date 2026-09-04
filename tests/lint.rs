@@ -336,3 +336,84 @@ fn unknown_cli_check_is_rejected_as_usage_error() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("invalid value"));
 }
+
+#[test]
+fn same_note_wikilink_anchors_are_not_broken_or_graph_edges() {
+    let vault = Vault::new(
+        "",
+        &[(
+            "Note.md",
+            "# Note\n\nSee [[#Section]], [[#Section|below]], and [[^block-id]].\n\n## Section\n\nA paragraph. ^block-id\n",
+        )],
+    );
+
+    let broken = vault.json(&["broken-links", "--format", "json"]);
+    assert_eq!(broken, serde_json::json!([]));
+
+    let lint = vault.json(&["lint", "--check", "broken-links", "--format", "json"]);
+    assert_eq!(lint["summary"]["broken_links"], 0);
+    assert_eq!(lint["summary"]["total_issues"], 0);
+
+    let orphans = vault.json(&["orphans", "--format", "json"]);
+    assert_eq!(orphans, serde_json::json!(["Note.md"]));
+}
+
+#[test]
+fn missing_headings_and_blocks_are_broken_with_positions() {
+    let vault = Vault::new(
+        "",
+        &[
+            (
+                "Source.md",
+                "# Source\n\n[[#Missing Local]]\n[[Target#Missing Remote]]\n[[Target#^missing-block]]\n[local](#missing-markdown)\n",
+            ),
+            ("Target.md", "# Target\n\n## Existing\n\nText. ^existing-block\n"),
+        ],
+    );
+
+    let broken = vault.json(&["broken-links", "--format", "json"]);
+    assert_eq!(broken.as_array().unwrap().len(), 4, "{broken:#}");
+    assert_eq!(broken[0]["target"], "#Missing Local");
+    assert_eq!(broken[0]["reason"], "missing-heading");
+    assert_eq!(broken[1]["target"], "Target#Missing Remote");
+    assert_eq!(broken[1]["reason"], "missing-heading");
+    assert_eq!(broken[2]["target"], "Target#^missing-block");
+    assert_eq!(broken[2]["reason"], "missing-block");
+    assert_eq!(broken[3]["target"], "#missing-markdown");
+    assert_eq!(broken[3]["syntax"], "markdown");
+
+    let lint = vault.json(&["lint", "--check", "broken-links", "--format", "json"]);
+    assert_eq!(
+        lint["summary"]["broken_links"],
+        broken.as_array().unwrap().len()
+    );
+
+    let query = vault.json(&["query", "--where", "broken>0", "--format", "json"]);
+    assert_eq!(query.as_array().unwrap().len(), 1, "{query:#}");
+    assert_eq!(query[0]["path"], "Source.md");
+    assert_eq!(query[0]["broken"], 4);
+}
+
+#[test]
+fn valid_cross_note_anchors_are_edges_and_anchor_syntax_is_normalized() {
+    let vault = Vault::new(
+        "",
+        &[
+            (
+                "Source.md",
+                "[[Target#Mixed Case]]\n[[Target#Mixed Case ###]]\n[[Target#^BLOCK_id]]\n[heading](Target.md#Mixed%20Case)\n[block](Target.md#^block_id)\n",
+            ),
+            (
+                "Target.md",
+                "## Mixed Case ###\n\nParagraph. ^block_id\n",
+            ),
+        ],
+    );
+
+    assert_eq!(
+        vault.json(&["broken-links", "--format", "json"]),
+        serde_json::json!([])
+    );
+    let orphans = vault.json(&["orphans", "--format", "json"]);
+    assert_eq!(orphans, serde_json::json!(["Source.md"]));
+}
