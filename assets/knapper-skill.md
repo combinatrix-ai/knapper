@@ -569,6 +569,37 @@ Broken links use the source path; orphan, duplicate, empty and frontmatter
 checks use the reported file path. Unknown rule names/fields/types and unknown
 `--check` names are errors.
 
+For path-specific policies, add an ordered `lint.paths` list. Each entry has a
+required Rust regex `path`, matched against the complete vault-relative path
+without implicit anchors. A later entry wins for a check it names; an unnamed
+check inherits its global rule. Checks can be boolean shorthand or blocks:
+
+```yaml
+lint:
+  paths:
+    - path: ^Questions/
+      frontmatter:
+        required: [status]
+        fields:
+          status:
+            type: string
+            enum: [open, deciding, decided, dropped]
+            required_if: {field: kind, equals: decision}
+    - path: ^Projects/
+      broken-links:
+        pattern: "^legacy/"
+```
+
+A path block enables its check unless `enabled: false` is given. The
+`broken-links.pattern` applies after resolution and `ignore_links` filtering,
+to normalized unresolved targets. Frontmatter fields can be typed as
+`string`, `number`, `boolean`, `date`, `list` or `object`, constrained with a
+scalar `enum`, and made conditional with `required_if`. Field-level failures
+appear with `file` and `field` and count toward `frontmatter_errors` and
+`total_issues`.
+An empty YAML value (`key:` or `key: null`) counts as unset: optional fields
+may remain empty, while `required` and a matching `required_if` still report it.
+
 ## Keeping knapper current
 
 ```bash
