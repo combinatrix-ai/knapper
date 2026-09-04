@@ -116,14 +116,8 @@ pub fn scan_links(content: &str) -> Vec<RawLink> {
             .get(2)
             .map(|m| m.as_str().trim().to_string())
             .unwrap_or_default();
-        let mut anchor = c
-            .get(3)
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_default();
-        let mut alias = c
-            .get(4)
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_default();
+        let mut anchor = c.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+        let mut alias = c.get(4).map(|m| m.as_str().to_string()).unwrap_or_default();
         // Inside a Markdown table Obsidian escapes the alias separator as
         // `\|`. The backslash protects table syntax; it is not part of the
         // note path or anchor. Keep it with the alias so rewrites round-trip.
