@@ -4,8 +4,7 @@
 //! requests accept a bounded, typed form operation on stdin. A value resolved
 //! from a Knapper reference never crosses this Unix socket.
 
-#[path = "../chrome_bridge.rs"]
-mod chrome_bridge;
+use knapper::chrome_bridge;
 
 #[cfg(unix)]
 mod unix_client {

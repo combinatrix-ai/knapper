@@ -7,8 +7,6 @@
 //! request or response; it is carried only in the Chrome-owned native
 //! messaging pipe.
 
-#![allow(dead_code)]
-
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};

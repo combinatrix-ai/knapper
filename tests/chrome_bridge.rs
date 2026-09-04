@@ -6,8 +6,7 @@
 
 #![cfg(unix)]
 
-#[path = "../src/chrome_bridge.rs"]
-mod bridge;
+use knapper::chrome_bridge as bridge;
 
 use std::io::{BufReader, Write};
 use std::os::unix::fs::PermissionsExt;

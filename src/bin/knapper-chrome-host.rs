@@ -5,8 +5,7 @@
 //! generic and never contain provider output, page text, or a resolved value.
 //! Codex talks to the host through the user-only Unix socket instead.
 
-#[path = "../chrome_bridge.rs"]
-mod chrome_bridge;
+use knapper::chrome_bridge;
 
 #[cfg(unix)]
 mod unix_host {
