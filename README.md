@@ -146,7 +146,7 @@ cargo install --git https://github.com/combinatrix-ai/knapper knapper
 
 ```bash
 cd ~/your-notes
-knapper init             # writes knapper.config.md — defaults are sane
+knapper init             # writes knapper.yaml — defaults are sane
 knapper lint             # how healthy is this vault?
 knapper tasks --overdue  # what slipped?
 ```
@@ -157,7 +157,7 @@ already have is never overwritten, `--force` included — that flag is about
 replacing knapper's config, not your writing.
 
 `knapper init` is one-time; after that, knapper walks up from wherever you are
-to find the nearest `knapper.config.md`, so commands work from any
+to find the nearest `knapper.yaml`, so commands work from any
 subdirectory.
 
 ## One filter over every note
@@ -757,7 +757,7 @@ tasks` keeps its established whole-list behaviour. A scheduled date says when
 you intend to work; it does not make a task unavailable.
 
 Statuses are configurable: `open` `[ ]`, `wip` `[/]`, `done` `[x]`, and
-`cancel` `[-]` are built in, and `knapper.config.md` can override their
+`cancel` `[-]` are built in, and `knapper.yaml` can override their
 markers or add custom statuses, which `knapper tasks set STATUS TEXT` and
 `--status` filters then understand.
 
@@ -827,10 +827,10 @@ alone — exactly like an `https://` link.
 
 What actually runs lives in `$XDG_CONFIG_HOME/knapper/providers.yaml`
 (`~/.config/knapper/providers.yaml` if that is unset) — **never** in
-`knapper.config.md`. A vault is synced, shared and cloned; a file that decides
+`knapper.yaml`. A vault is synced, shared and cloned; a file that decides
 what gets executed must not travel with it. knapper reads no provider
 configuration from a vault, and a `providers:` block in a vault config is
-ignored.
+refused.
 
 ```bash
 knapper provider set personal -- op read 'op://Knapper/{locator}/value'
@@ -942,7 +942,9 @@ shell, so use an absolute executable path (for example
 
 | Command | What it does |
 |---------|--------------|
-| `knapper init` | Write `knapper.config.md`, and the daily template it names |
+| `knapper init` | Write `knapper.yaml`, and the daily template it names |
+| `knapper config check` | Validate the config without scanning the vault |
+| `knapper config schema` | Print the JSON Schema for YAML-aware editors |
 | `knapper query` | Filter notes by frontmatter, inline fields and link counts |
 | `knapper fields` | List what `query` can filter on |
 | `knapper lint` | Vault health: `broken-links`, `orphans`, `duplicates`, `empty`, `frontmatter` |
@@ -975,12 +977,15 @@ Query commands take `-f/--format`; the rest of the detail lives behind
 
 ## Configuration
 
-`knapper init` writes `knapper.config.md` — a markdown file whose YAML
-frontmatter holds the config, so it reads like any other note. The defaults
-assume a conventional layout:
+`knapper init` writes `knapper.yaml`, a plain YAML file. It includes a
+`yaml-language-server` schema modeline, so editors that support the YAML
+Language Server can offer completion, hover documentation and diagnostics.
+Only `knapper.yaml` is discovered; the former Markdown-frontmatter
+`knapper.config.md` is not a fallback.
+The defaults assume a conventional layout:
 
 ```yaml
----
+# yaml-language-server: $schema=https://raw.githubusercontent.com/combinatrix-ai/knapper/main/schema/knapper.schema.json
 vault_path: .
 template_engine: templater   # or "core"
 exclude:
@@ -1001,11 +1006,13 @@ daily_notes:
   format: YYYY-MM-DD
 tasks:
   default_file: daily        # where `tasks new` writes: daily | inbox | a path
----
 ```
 
-The generated file documents the rest, including custom task statuses.
-Nothing in it is Obsidian-specific.
+The schema is also available locally with `knapper config schema`. `knapper
+config check` is the authoritative runtime validator: it catches unknown keys,
+wrong types, unsupported values and semantic errors such as ambiguous task
+status markers without scanning any notes. Nothing in the config is
+Obsidian-specific.
 
 ### Configuring lint rules
 

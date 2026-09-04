@@ -1283,7 +1283,44 @@ pub fn rename(config: &Config, old: &str, new: &str, dry_run: bool, format: &str
     Ok(())
 }
 
-pub const DEFAULT_CONFIG: &str = include_str!("default_config.md");
+pub const DEFAULT_CONFIG: &str = include_str!("default_config.yaml");
+/// The JSON Schema shipped with the repository and exposed by
+/// `knapper config schema` for YAML Language Server clients.
+pub const CONFIG_SCHEMA: &str = include_str!("../schema/knapper.schema.json");
+
+pub fn config_schema() -> Result<()> {
+    print!("{CONFIG_SCHEMA}");
+    if !CONFIG_SCHEMA.ends_with('\n') {
+        println!();
+    }
+    Ok(())
+}
+
+/// Validate the discovered or explicitly selected config without scanning the
+/// vault. `load_config` remains the authoritative parser and semantic
+/// validator used by every vault command.
+pub fn config_check(
+    explicit: Option<&str>,
+    vault_override: Option<&str>,
+    format: &str,
+) -> Result<()> {
+    let path = crate::vault::config_path(explicit)?;
+    crate::vault::load_config(explicit, vault_override)?;
+    let path = std::fs::canonicalize(&path).unwrap_or(path);
+    match format {
+        "json" => print_json(&json!({
+            "path": path.to_string_lossy(),
+            "valid": true,
+        })),
+        "text" => println!("Valid configuration: {}", path.display()),
+        other => {
+            return Err(anyhow!(
+                "unknown config output format `{other}`. Formats here: text, json"
+            ))
+        }
+    }
+    Ok(())
+}
 
 /// The body `knapper init` puts in the template it creates.
 ///

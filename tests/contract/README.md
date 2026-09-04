@@ -87,7 +87,7 @@ Logseq, org-mode and the rest -- and backs the compatibility claims in
 
 `fixtures/behaviour/` holds vaults that belong to no ecosystem and exist to
 pin behaviour: `bare` has no config at all, `configured` exercises what
-`knapper.config.md` can change, `vaultproviders` declares a `providers:` block
+`knapper.yaml` can change, `vaultproviders` declares a `providers:` block
 that must never be executed or accepted, `refactor` collects every form a link
 can take so a rename has something to get wrong, and `repair` collects every
 kind of broken link — the ones a stale path settles, the ones two files answer

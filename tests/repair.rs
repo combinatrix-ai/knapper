@@ -32,10 +32,7 @@ impl Vault {
         let vault = Vault {
             root: tempfile::tempdir().unwrap(),
         };
-        vault.write(
-            "knapper.config.md",
-            &format!("---\nvault_path: .\n{config}---\n"),
-        );
+        vault.write("knapper.yaml", &format!("vault_path: .\n{config}"));
         for (path, content) in files {
             vault.write(path, content);
         }

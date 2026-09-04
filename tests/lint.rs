@@ -13,8 +13,8 @@ impl Vault {
     fn new(config: &str, files: &[(&str, &str)]) -> Self {
         let root = tempdir().unwrap();
         fs::write(
-            root.path().join("knapper.config.md"),
-            format!("---\nvault_path: .\n{config}---\n"),
+            root.path().join("knapper.yaml"),
+            format!("vault_path: .\n{config}"),
         )
         .unwrap();
         for (relative, content) in files {

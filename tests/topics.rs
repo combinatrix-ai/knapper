@@ -28,7 +28,7 @@ impl Vault {
         let vault = Vault {
             root: tempfile::tempdir().unwrap(),
         };
-        vault.write("knapper.config.md", "---\nvault_path: .\n---\n");
+        vault.write("knapper.yaml", "vault_path: .\n");
         for (path, content) in files {
             vault.write(path, content);
         }
@@ -267,10 +267,7 @@ fn an_excluded_note_is_never_rewritten() {
         ("note.md", "[[Topic]]\n"),
         ("Archives/old.md", "[[Topic]]\n"),
     ]);
-    vault.write(
-        "knapper.config.md",
-        "---\nvault_path: .\nexclude:\n  - Archives/\n---\n",
-    );
+    vault.write("knapper.yaml", "vault_path: .\nexclude:\n  - Archives/\n");
 
     let run = vault.run(&["demote", "Topic", "--format", "json"]).ok();
     assert_eq!(run.json()["links_updated"], 1);

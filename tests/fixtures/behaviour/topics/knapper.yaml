@@ -1,0 +1,5 @@
+vault_path: .
+exclude:
+  - Archives/
+# This vault uses [[COO採用]] as a label rather than as a promise that a note
+# by that name exists. Archives/ is excluded from whole-vault commands.

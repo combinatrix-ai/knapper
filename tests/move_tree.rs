@@ -27,7 +27,7 @@ impl Vault {
     fn new(files: &[(&str, &str)]) -> Self {
         let root = tempfile::tempdir().unwrap();
         let vault = Vault { root };
-        vault.write("knapper.config.md", "---\nvault_path: .\n---\n");
+        vault.write("knapper.yaml", "vault_path: .\n");
         for (path, content) in files {
             vault.write(path, content);
         }
@@ -401,10 +401,7 @@ fn a_symlinked_directory_is_refused() {
 fn an_excluded_source_or_destination_is_refused() {
     for (source, destination) in [("Logs/Old", "Archive/"), ("Guide", "Logs/")] {
         let vault = guide_vault();
-        vault.write(
-            "knapper.config.md",
-            "---\nvault_path: .\nexclude:\n  - Logs\n---\n",
-        );
+        vault.write("knapper.yaml", "vault_path: .\nexclude:\n  - Logs\n");
         vault.write("Logs/Old/note.md", "# Old\n");
 
         let run = vault.run(&["move", source, destination]);

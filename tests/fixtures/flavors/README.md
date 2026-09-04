@@ -28,7 +28,7 @@ a diff rather than as a surprise.
 | `roam` | ✅ | ✅ | No config needed. Macros and `((uid))` are ignored, `[[[[x]]]]` parses, `{{[[TODO]]}}` is a task |
 | `orgmode` | ✅ | ✅ | Own parser: `[[file:x.org][d]]`, `[[id:uuid]]`, global `[[*Heading]]`, `:PROPERTIES:` drawers, `#+FILETAGS:`, TODO/DONE with SCHEDULED/DEADLINE/CLOSED |
 
-One directory here is not a flavor. `bare/` has no `knapper.config.md` and
+One directory here is not a flavor. `bare/` has no `knapper.yaml` and
 belongs to no ecosystem: it is what any vault looks like the moment before
 `knapper init`. Every other fixture ships a config, so that state was never
 exercised — and both implementations turned out to be wrong in it, the Rust
@@ -56,7 +56,7 @@ is why it lives here rather than in a test file.
 
 ## Adding a flavor
 
-1. Add a directory with a `knapper.config.md` and the smallest set of notes
+1. Add a directory with a `knapper.yaml` and the smallest set of notes
    that exercises the constructs the flavor actually uses.
 2. Add a row to `EXPECTED` in `tests/flavors.rs`.
 3. Only then mention the flavor in user-facing docs.

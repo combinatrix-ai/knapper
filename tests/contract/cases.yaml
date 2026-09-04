@@ -203,7 +203,7 @@
   vault: obsidian
   args: [query, --format, paths]
   expect:
-    stdout_excludes: ["knapper.config.md"]
+    stdout_excludes: ["knapper.yaml"]
 
 - name: obsidian / rename rewrites every inbound link
   vault: obsidian
@@ -622,7 +622,7 @@
     sorted: true
 
 # ------------------------------------------------------- Before a config --
-# The `bare` fixture has no knapper.config.md, which is what every vault looks
+# The `bare` fixture has no knapper.yaml, which is what every vault looks
 # like the moment before `knapper init`. Every other fixture ships a config,
 # so this state went unexercised -- and both implementations were wrong in it.
 
@@ -630,9 +630,9 @@
   vault: bare
   args: [init]
   expect:
-    stdout_contains: ["knapper.config.md"]
+    stdout_contains: ["knapper.yaml"]
     file:
-      "knapper.config.md":
+      "knapper.yaml":
         # The generated config declares a template folder and excludes it in
         # the same breath, because knapper hides no folder by name.
         contains: ["vault_path", "exclude:", "Templates/"]
@@ -659,7 +659,7 @@
 
 # ------------------------------------------------------ Driven by config --
 # The `configured` fixture is not a flavor either: it exists to exercise what
-# knapper.config.md can change -- an excluded subtree, and custom task
+# knapper.yaml can change -- an excluded subtree, and custom task
 # statuses. logs/ holds a note that links, tags and carries a task, so any
 # command that forgets the exclude shows it immediately.
 
@@ -1355,7 +1355,7 @@
       personal:
         command: [op, read, "op://Knapper/{locator}/value"]
   args: [provider, list]
-  # Even with no knapper.config.md anywhere: the broker is not a vault
+  # Even with no knapper.yaml anywhere: the broker is not a vault
   # command, and works from any directory.
   expect:
     lines: ['personal  ["op","read","op://Knapper/{locator}/value"]']
@@ -1503,7 +1503,7 @@
 
 - name: vaultproviders / a provider declared by the vault is not a provider
   vault: vaultproviders
-  # knapper.config.md declares `providers: fromvault: command: [touch, ...]`.
+  # knapper.yaml declares `providers: fromvault: command: [touch, ...]`.
   # It travels with the notes, so nothing in it is executable configuration:
   # resolving through it must fail the same way an empty machine does.
   # `resolve` never reads a vault, so the declaration is unreachable here
@@ -1515,7 +1515,7 @@
 
 - name: vaultproviders / a vault command refuses the block by name
   vault: vaultproviders
-  # The commands that do read knapper.config.md say what is wrong with it and
+  # The commands that do read knapper.yaml say what is wrong with it and
   # where executable configuration belongs, rather than skipping the block and
   # leaving the vault looking configured.
   args: [links, Note.md]
@@ -1523,8 +1523,8 @@
     exit: 1
     stderr_contains:
       - "`providers` is not vault configuration"
-      - "knapper providers set"
-      - "knapper.config.md"
+      - "knapper provider set"
+      - "knapper.yaml"
 
 # --------------------------------------------------------- Target discovery --
 
