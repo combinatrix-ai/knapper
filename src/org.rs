@@ -48,7 +48,6 @@ pub const ORG_OPEN_STATES: &[&str] = &[
 
 #[derive(Debug, Clone, Default)]
 pub struct OrgHeading {
-    pub level: usize,
     pub text: String,
     pub todo: Option<String>,
     pub priority: Option<String>,
@@ -222,7 +221,6 @@ pub fn parse_org(content: &str) -> OrgDocument {
             .unwrap_or_default();
         doc.tags.extend(tags.clone());
         doc.headings.push(OrgHeading {
-            level: c[1].len(),
             text: c
                 .get(4)
                 .map(|m| m.as_str().trim().to_string())
@@ -266,7 +264,6 @@ pub fn parse_org_note(path: &Path, content: &str) -> Note {
         });
 
     Note {
-        path: path.to_string_lossy().into_owned(),
         title,
         content: content.to_string(),
         frontmatter: doc.metadata,
@@ -379,7 +376,7 @@ Links to [[file:lit-review.org][Lit Review]].
     }
 
     #[test]
-    fn headings_carry_state_priority_and_level() {
+    fn headings_carry_state_and_priority() {
         let doc = parse_org(CONTENT);
         let find = |text: &str| {
             doc.headings
@@ -391,7 +388,6 @@ Links to [[file:lit-review.org][Lit Review]].
         let intro = find("draft intro");
         assert_eq!(intro.todo.as_deref(), Some("TODO"));
         assert_eq!(intro.priority.as_deref(), Some("A"));
-        assert_eq!(intro.level, 2);
         assert_eq!(find("outline").todo.as_deref(), Some("DONE"));
         assert_eq!(find("Overview").todo, None);
     }
