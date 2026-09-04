@@ -5,7 +5,7 @@
 //! org-mode TODO states. Planning lines are folded into the text using the
 //! emoji markers, so the date filters need no per-flavor branches.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use anyhow::{anyhow, Result};
@@ -41,6 +41,40 @@ static RECURRENCE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)🔁\s*every\s+(\d+)\s+(day|days|week|weeks|month|months|year|years)\b").unwrap()
 });
 static TAG_IN_TASK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#([\w/-]+)").unwrap());
+
+fn date_patterns<const N: usize>(sources: [&str; N]) -> [Regex; N] {
+    sources.map(|source| Regex::new(source).expect("valid task date regex"))
+}
+
+static DUE_DATES: LazyLock<[Regex; 3]> = LazyLock::new(|| {
+    date_patterns([
+        r"📅\s*(\d{4}-\d{2}-\d{2})",
+        r"due:(\d{4}-\d{2}-\d{2})",
+        r"@due\((\d{4}-\d{2}-\d{2})\)",
+    ])
+});
+static DONE_DATES: LazyLock<[Regex; 3]> = LazyLock::new(|| {
+    date_patterns([
+        r"✅\s*(\d{4}-\d{2}-\d{2})",
+        r"done:(\d{4}-\d{2}-\d{2})",
+        r"@done\((\d{4}-\d{2}-\d{2})\)",
+    ])
+});
+static CREATED_DATES: LazyLock<[Regex; 3]> = LazyLock::new(|| {
+    date_patterns([
+        r"➕\s*(\d{4}-\d{2}-\d{2})",
+        r"created:(\d{4}-\d{2}-\d{2})",
+        r"@created\((\d{4}-\d{2}-\d{2})\)",
+    ])
+});
+static SCHEDULED_DATES: LazyLock<[Regex; 2]> = LazyLock::new(|| {
+    date_patterns([
+        r"⏳\s*(\d{4}-\d{2}-\d{2})",
+        r"scheduled:(\d{4}-\d{2}-\d{2})",
+    ])
+});
+static START_DATES: LazyLock<[Regex; 2]> =
+    LazyLock::new(|| date_patterns([r"🛫\s*(\d{4}-\d{2}-\d{2})", r"start:(\d{4}-\d{2}-\d{2})"]));
 
 const PRIORITY_MARKERS: &[(&str, &str)] = &[("⏫", "high"), ("🔼", "medium"), ("🔽", "low")];
 
@@ -143,9 +177,9 @@ fn status_name(ch: char, statuses: &BTreeMap<String, Status>) -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
-fn first_date(text: &str, patterns: &[&str]) -> Option<String> {
-    for p in patterns {
-        if let Some(c) = Regex::new(p).ok()?.captures(text) {
+fn first_date(text: &str, patterns: &[Regex]) -> Option<String> {
+    for pattern in patterns {
+        if let Some(c) = pattern.captures(text) {
             return Some(c[1].to_string());
         }
     }
@@ -153,53 +187,23 @@ fn first_date(text: &str, patterns: &[&str]) -> Option<String> {
 }
 
 pub fn parse_due_date(text: &str) -> Option<String> {
-    first_date(
-        text,
-        &[
-            r"📅\s*(\d{4}-\d{2}-\d{2})",
-            r"due:(\d{4}-\d{2}-\d{2})",
-            r"@due\((\d{4}-\d{2}-\d{2})\)",
-        ],
-    )
+    first_date(text, &*DUE_DATES)
 }
 
 pub fn parse_done_date(text: &str) -> Option<String> {
-    first_date(
-        text,
-        &[
-            r"✅\s*(\d{4}-\d{2}-\d{2})",
-            r"done:(\d{4}-\d{2}-\d{2})",
-            r"@done\((\d{4}-\d{2}-\d{2})\)",
-        ],
-    )
+    first_date(text, &*DONE_DATES)
 }
 
 pub fn parse_created_date(text: &str) -> Option<String> {
-    first_date(
-        text,
-        &[
-            r"➕\s*(\d{4}-\d{2}-\d{2})",
-            r"created:(\d{4}-\d{2}-\d{2})",
-            r"@created\((\d{4}-\d{2}-\d{2})\)",
-        ],
-    )
+    first_date(text, &*CREATED_DATES)
 }
 
 pub fn parse_scheduled_date(text: &str) -> Option<String> {
-    first_date(
-        text,
-        &[
-            r"⏳\s*(\d{4}-\d{2}-\d{2})",
-            r"scheduled:(\d{4}-\d{2}-\d{2})",
-        ],
-    )
+    first_date(text, &*SCHEDULED_DATES)
 }
 
 pub fn parse_start_date(text: &str) -> Option<String> {
-    first_date(
-        text,
-        &[r"🛫\s*(\d{4}-\d{2}-\d{2})", r"start:(\d{4}-\d{2}-\d{2})"],
-    )
+    first_date(text, &*START_DATES)
 }
 
 pub fn parse_priority(text: &str) -> Option<String> {
@@ -554,7 +558,7 @@ pub fn find_tasks(config: &Config, f: &Filters) -> Result<Vec<Task>> {
             org_candidates(&content, &lines)
         } else {
             let outliner = outliner_candidates(&lines, &config.flavor);
-            let seen: Vec<usize> = outliner.iter().map(|(i, _, _)| *i).collect();
+            let seen: BTreeSet<usize> = outliner.iter().map(|(i, _, _)| *i).collect();
             let mut all = outliner;
             for (index, line) in lines.iter().enumerate() {
                 if seen.contains(&index) {
@@ -1004,6 +1008,10 @@ mod tests {
             parse_due_date("Task due:2026-01-26").as_deref(),
             Some("2026-01-26")
         );
+        assert_eq!(
+            parse_due_date("Task @due(2026-01-26)").as_deref(),
+            Some("2026-01-26")
+        );
         assert_eq!(parse_due_date("Task without due date"), None);
     }
 
@@ -1048,6 +1056,14 @@ mod tests {
         );
         assert_eq!(
             parse_start_date("x 🛫 2026-02-01").as_deref(),
+            Some("2026-02-01")
+        );
+        assert_eq!(
+            parse_scheduled_date("x scheduled:2026-02-01").as_deref(),
+            Some("2026-02-01")
+        );
+        assert_eq!(
+            parse_start_date("x start:2026-02-01").as_deref(),
             Some("2026-02-01")
         );
         assert_eq!(parse_priority("x ⏫").as_deref(), Some("high"));
