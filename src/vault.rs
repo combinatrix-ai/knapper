@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
+use regex::Regex;
 use walkdir::WalkDir;
 
 /// The vault-local machine configuration. This is deliberately a real YAML
@@ -20,16 +21,78 @@ pub const LINT_RULE_NAMES: &[&str] = &[
     "frontmatter",
 ];
 
+pub const LINT_FIELD_TYPES: &[&str] = &["string", "number", "boolean", "date", "list", "object"];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FrontmatterFieldType {
+    String,
+    Number,
+    Boolean,
+    Date,
+    List,
+    Object,
+}
+
+impl FrontmatterFieldType {
+    fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "string" => Self::String,
+            "number" => Self::Number,
+            "boolean" => Self::Boolean,
+            "date" => Self::Date,
+            "list" => Self::List,
+            "object" => Self::Object,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequiredIf {
+    pub field: String,
+    pub equals: serde_yaml::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrontmatterFieldRule {
+    pub field_type: Option<FrontmatterFieldType>,
+    pub enum_values: Vec<serde_yaml::Value>,
+    pub required_if: Option<RequiredIf>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FrontmatterPolicy {
+    pub required: Vec<String>,
+    pub fields: std::collections::BTreeMap<String, FrontmatterFieldRule>,
+}
+
 /// The configuration for one lint check.
 ///
 /// A missing rule block has the same value as this default. `include` is an
 /// allow-list of vault-relative path prefixes; `exclude` wins when both match.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct LintRuleConfig {
     pub enabled: bool,
     pub include: Vec<String>,
     pub exclude: Vec<String>,
+    /// An optional regex applied to normalized unresolved link targets.
+    pub broken_pattern: Option<Regex>,
+    /// Additional checks for YAML frontmatter, supplied by a path rule.
+    pub frontmatter: Option<FrontmatterPolicy>,
 }
+
+impl PartialEq for LintRuleConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.enabled == other.enabled
+            && self.include == other.include
+            && self.exclude == other.exclude
+            && self.broken_pattern.as_ref().map(Regex::as_str)
+                == other.broken_pattern.as_ref().map(Regex::as_str)
+            && self.frontmatter == other.frontmatter
+    }
+}
+
+impl Eq for LintRuleConfig {}
 
 impl Default for LintRuleConfig {
     fn default() -> Self {
@@ -37,8 +100,19 @@ impl Default for LintRuleConfig {
             enabled: true,
             include: Vec::new(),
             exclude: Vec::new(),
+            broken_pattern: None,
+            frontmatter: None,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct LintPathRule {
+    pub path: Regex,
+    /// A check's presence in this map is itself an override. The parser gives
+    /// block shorthand an enabled=true default, so a later matching entry can
+    /// replace an earlier policy in full.
+    pub rules: std::collections::BTreeMap<String, LintRuleConfig>,
 }
 
 impl LintRuleConfig {
@@ -73,6 +147,7 @@ pub struct Config {
     pub exclude: Vec<String>,
     pub ignore_links: Vec<String>,
     pub lint_rules: std::collections::BTreeMap<String, LintRuleConfig>,
+    pub lint_paths: Vec<LintPathRule>,
     pub daily_folder: String,
     /// The template a daily note is created from, exactly as the vault wrote
     /// it. `None` means the vault named none: only then is a bare dated note
@@ -95,6 +170,7 @@ impl Default for Config {
             exclude: Vec::new(),
             ignore_links: Vec::new(),
             lint_rules: default_lint_rules(),
+            lint_paths: Vec::new(),
             daily_folder: "Daily".into(),
             daily_template: None,
             daily_format: "YYYY-MM-DD".into(),
@@ -144,6 +220,9 @@ enum Shape {
     /// the same fields. This is stricter than `Named`, which is used for
     /// user-defined task statuses.
     NamedFixed(&'static [&'static str], &'static [(&'static str, Shape)]),
+    /// The ordered path-rule DSL has check-specific fields, so it has a
+    /// dedicated validator instead of pretending to be a generic mapping.
+    LintPaths,
 }
 
 /// The engines `templater::expand` actually implements.
@@ -181,7 +260,10 @@ const LINT_RULE: &[(&str, Shape)] = &[
     ("exclude", Shape::TextList),
 ];
 
-const LINT: &[(&str, Shape)] = &[("rules", Shape::NamedFixed(LINT_RULE_NAMES, LINT_RULE))];
+const LINT: &[(&str, Shape)] = &[
+    ("rules", Shape::NamedFixed(LINT_RULE_NAMES, LINT_RULE)),
+    ("paths", Shape::LintPaths),
+];
 
 const SETTINGS: &[(&str, Shape)] = &[
     ("vault_path", Shape::Text(None)),
@@ -359,7 +441,314 @@ fn check_value(path: &str, value: &serde_yaml::Value, shape: &Shape) -> Result<(
             }
             Ok(())
         }
+        Shape::LintPaths => validate_lint_paths(path, value),
     }
+}
+
+fn is_scalar(value: &serde_yaml::Value) -> bool {
+    matches!(
+        value,
+        serde_yaml::Value::Null
+            | serde_yaml::Value::Bool(_)
+            | serde_yaml::Value::Number(_)
+            | serde_yaml::Value::String(_)
+    )
+}
+
+fn check_string_sequence(path: &str, value: &serde_yaml::Value) -> Result<()> {
+    let Some(items) = value.as_sequence() else {
+        return Err(anyhow!(
+            "`{path}` must be a list of strings, but it is {}",
+            yaml_kind(value)
+        ));
+    };
+    for (index, item) in items.iter().enumerate() {
+        if !item.is_string() {
+            return Err(anyhow!(
+                "`{path}` entry {} must be a string, but it is {}",
+                index + 1,
+                yaml_kind(item)
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn check_field_rule(path: &str, value: &serde_yaml::Value) -> Result<()> {
+    let Some(block) = value.as_mapping() else {
+        return Err(anyhow!(
+            "`{path}` must be a block of settings, but it is {}",
+            yaml_kind(value)
+        ));
+    };
+    for (key, entry) in block {
+        let Some(key) = key.as_str() else {
+            return Err(anyhow!(
+                "`{path}` is keyed by field-rule names, but one of its keys is {}",
+                yaml_kind(key)
+            ));
+        };
+        let entry_path = format!("{path}.{key}");
+        match key {
+            "type" => {
+                let Some(kind) = entry.as_str() else {
+                    return Err(anyhow!(
+                        "`{entry_path}` must be a string, but it is {}",
+                        yaml_kind(entry)
+                    ));
+                };
+                if !LINT_FIELD_TYPES.contains(&kind) {
+                    return Err(anyhow!(
+                        "`{entry_path}` must be {}, but it is `{kind}`",
+                        LINT_FIELD_TYPES.join(" or ")
+                    ));
+                }
+            }
+            "enum" => {
+                let Some(values) = entry.as_sequence() else {
+                    return Err(anyhow!(
+                        "`{entry_path}` must be a list of scalar values, but it is {}",
+                        yaml_kind(entry)
+                    ));
+                };
+                for (index, value) in values.iter().enumerate() {
+                    if !is_scalar(value) {
+                        return Err(anyhow!(
+                            "`{entry_path}` entry {} must be a scalar, but it is {}",
+                            index + 1,
+                            yaml_kind(value)
+                        ));
+                    }
+                }
+            }
+            "required_if" => check_required_if(&entry_path, entry)?,
+            other => {
+                return Err(anyhow!(
+                    "unknown setting `{path}.{other}`. Field rules here: type, enum, required_if"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_required_if(path: &str, value: &serde_yaml::Value) -> Result<()> {
+    let Some(block) = value.as_mapping() else {
+        return Err(anyhow!(
+            "`{path}` must be a block of settings, but it is {}",
+            yaml_kind(value)
+        ));
+    };
+    let mut field_seen = false;
+    let mut equals_seen = false;
+    for (key, entry) in block {
+        let Some(key) = key.as_str() else {
+            return Err(anyhow!(
+                "`{path}` is keyed by names, but one of its keys is {}",
+                yaml_kind(key)
+            ));
+        };
+        match key {
+            "field" => {
+                field_seen = true;
+                if !entry.is_string() {
+                    return Err(anyhow!(
+                        "`{path}.field` must be a string, but it is {}",
+                        yaml_kind(entry)
+                    ));
+                }
+            }
+            "equals" => {
+                equals_seen = true;
+                if !is_scalar(entry) {
+                    return Err(anyhow!(
+                        "`{path}.equals` must be a scalar, but it is {}",
+                        yaml_kind(entry)
+                    ));
+                }
+            }
+            other => {
+                return Err(anyhow!(
+                    "unknown setting `{path}.{other}`. required_if fields here: field, equals"
+                ));
+            }
+        }
+    }
+    if !field_seen {
+        return Err(anyhow!("`{path}.field` is required"));
+    }
+    if !equals_seen {
+        return Err(anyhow!("`{path}.equals` is required"));
+    }
+    Ok(())
+}
+
+fn check_frontmatter_path_rule(path: &str, block: &serde_yaml::Mapping) -> Result<()> {
+    for (key, value) in block {
+        let Some(key) = key.as_str() else {
+            return Err(anyhow!(
+                "`{path}` is keyed by names, but one of its keys is {}",
+                yaml_kind(key)
+            ));
+        };
+        let entry_path = format!("{path}.{key}");
+        match key {
+            "enabled" => {
+                if !value.is_bool() {
+                    return Err(anyhow!(
+                        "`{entry_path}` must be true or false, but it is {}",
+                        yaml_kind(value)
+                    ));
+                }
+            }
+            "required" => check_string_sequence(&entry_path, value)?,
+            "fields" => {
+                let Some(fields) = value.as_mapping() else {
+                    return Err(anyhow!(
+                        "`{entry_path}` must be a block of field rules, but it is {}",
+                        yaml_kind(value)
+                    ));
+                };
+                for (field, rule) in fields {
+                    let Some(field) = field.as_str() else {
+                        return Err(anyhow!(
+                            "`{entry_path}` is keyed by field names, but one of its keys is {}",
+                            yaml_kind(field)
+                        ));
+                    };
+                    check_field_rule(&format!("{entry_path}.{field}"), rule)?;
+                }
+            }
+            other => {
+                return Err(anyhow!(
+                    "unknown setting `{path}.{other}`. Frontmatter rule fields here: enabled, required, fields"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_path_check(path: &str, name: &str, value: &serde_yaml::Value) -> Result<()> {
+    if value.is_bool() {
+        return Ok(());
+    }
+    let Some(block) = value.as_mapping() else {
+        return Err(anyhow!(
+            "`{path}.{name}` must be true, false, or a block of settings, but it is {}",
+            yaml_kind(value)
+        ));
+    };
+    match name {
+        "broken-links" => {
+            for (key, entry) in block {
+                let Some(key) = key.as_str() else {
+                    return Err(anyhow!(
+                        "`{path}.{name}` is keyed by names, but one of its keys is {}",
+                        yaml_kind(key)
+                    ));
+                };
+                let entry_path = format!("{path}.{name}.{key}");
+                match key {
+                    "enabled" => {
+                        if !entry.is_bool() {
+                            return Err(anyhow!(
+                                "`{entry_path}` must be true or false, but it is {}",
+                                yaml_kind(entry)
+                            ));
+                        }
+                    }
+                    "pattern" => {
+                        let Some(pattern) = entry.as_str() else {
+                            return Err(anyhow!(
+                                "`{entry_path}` must be a regex string, but it is {}",
+                                yaml_kind(entry)
+                            ));
+                        };
+                        Regex::new(pattern)
+                            .map_err(|err| anyhow!("`{entry_path}` is not a valid regex: {err}"))?;
+                    }
+                    other => {
+                        return Err(anyhow!(
+                            "unknown setting `{path}.{name}.{other}`. Broken-link rule fields here: enabled, pattern"
+                        ));
+                    }
+                }
+            }
+        }
+        "frontmatter" => check_frontmatter_path_rule(&format!("{path}.{name}"), block)?,
+        _ => {
+            for (key, entry) in block {
+                let Some(key) = key.as_str() else {
+                    return Err(anyhow!(
+                        "`{path}.{name}` is keyed by names, but one of its keys is {}",
+                        yaml_kind(key)
+                    ));
+                };
+                if key != "enabled" {
+                    return Err(anyhow!(
+                        "unknown setting `{path}.{name}.{key}`. Rule fields here: enabled"
+                    ));
+                }
+                if !entry.is_bool() {
+                    return Err(anyhow!(
+                        "`{path}.{name}.enabled` must be true or false, but it is {}",
+                        yaml_kind(entry)
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_lint_paths(path: &str, value: &serde_yaml::Value) -> Result<()> {
+    let Some(entries) = value.as_sequence() else {
+        return Err(anyhow!(
+            "`{path}` must be a list of path rules, but it is {}",
+            yaml_kind(value)
+        ));
+    };
+    for (index, entry) in entries.iter().enumerate() {
+        let entry_path = format!("{path}[{}]", index + 1);
+        let Some(block) = entry.as_mapping() else {
+            return Err(anyhow!(
+                "`{entry_path}` must be a block of settings, but it is {}",
+                yaml_kind(entry)
+            ));
+        };
+        let Some(path_value) = block.get(serde_yaml::Value::String("path".into())) else {
+            return Err(anyhow!("`{entry_path}.path` is required"));
+        };
+        let Some(path_pattern) = path_value.as_str() else {
+            return Err(anyhow!(
+                "`{entry_path}.path` must be a regex string, but it is {}",
+                yaml_kind(path_value)
+            ));
+        };
+        Regex::new(path_pattern)
+            .map_err(|err| anyhow!("`{entry_path}.path` is not a valid regex: {err}"))?;
+
+        for (key, value) in block {
+            let Some(key) = key.as_str() else {
+                return Err(anyhow!(
+                    "`{entry_path}` is keyed by strings, but one of its keys is {}",
+                    yaml_kind(key)
+                ));
+            };
+            if key == "path" {
+                continue;
+            }
+            if !LINT_RULE_NAMES.contains(&key) {
+                return Err(anyhow!(
+                    "unknown setting `{entry_path}.{key}`. Path checks here: {}",
+                    LINT_RULE_NAMES.join(", ")
+                ));
+            }
+            check_path_check(&entry_path, key, value)?;
+        }
+    }
+    Ok(())
 }
 
 /// Check a whole config against the schema.
@@ -447,6 +836,120 @@ fn check_statuses(settings: &serde_yaml::Mapping) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn mapping_value<'a>(mapping: &'a serde_yaml::Mapping, key: &str) -> Option<&'a serde_yaml::Value> {
+    mapping.get(serde_yaml::Value::String(key.to_string()))
+}
+
+fn parse_frontmatter_policy(block: &serde_yaml::Mapping) -> FrontmatterPolicy {
+    let required = mapping_value(block, "required")
+        .and_then(|value| value.as_sequence())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut fields = std::collections::BTreeMap::new();
+    if let Some(declared) = mapping_value(block, "fields").and_then(|value| value.as_mapping()) {
+        for (name, value) in declared {
+            let (Some(name), Some(rule)) = (name.as_str(), value.as_mapping()) else {
+                continue;
+            };
+            let field_type = mapping_value(rule, "type")
+                .and_then(|value| value.as_str())
+                .and_then(FrontmatterFieldType::parse);
+            let enum_values = mapping_value(rule, "enum")
+                .and_then(|value| value.as_sequence())
+                .cloned()
+                .unwrap_or_default();
+            let required_if = mapping_value(rule, "required_if")
+                .and_then(|value| value.as_mapping())
+                .and_then(|condition| {
+                    Some(RequiredIf {
+                        field: mapping_value(condition, "field")?.as_str()?.to_string(),
+                        equals: mapping_value(condition, "equals")?.clone(),
+                    })
+                });
+            fields.insert(
+                name.to_string(),
+                FrontmatterFieldRule {
+                    field_type,
+                    enum_values,
+                    required_if,
+                },
+            );
+        }
+    }
+
+    FrontmatterPolicy { required, fields }
+}
+
+fn parse_lint_path_check(name: &str, value: &serde_yaml::Value) -> Result<LintRuleConfig> {
+    if let Some(enabled) = value.as_bool() {
+        return Ok(LintRuleConfig {
+            enabled,
+            ..Default::default()
+        });
+    }
+
+    let block = value
+        .as_mapping()
+        .ok_or_else(|| anyhow!("lint path rule {name:?} is not a boolean or block"))?;
+    let enabled = mapping_value(block, "enabled")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    let broken_pattern = if name == "broken-links" {
+        mapping_value(block, "pattern")
+            .and_then(|value| value.as_str())
+            .map(Regex::new)
+            .transpose()
+            .map_err(|err| anyhow!("invalid broken-links pattern: {err}"))?
+    } else {
+        None
+    };
+    let frontmatter = (name == "frontmatter").then(|| parse_frontmatter_policy(block));
+
+    Ok(LintRuleConfig {
+        enabled,
+        broken_pattern,
+        frontmatter,
+        ..Default::default()
+    })
+}
+
+fn parse_lint_paths(settings: &serde_yaml::Mapping) -> Result<Vec<LintPathRule>> {
+    let Some(entries) = mapping_value(settings, "lint")
+        .and_then(|value| value.as_mapping())
+        .and_then(|lint| mapping_value(lint, "paths"))
+        .and_then(|value| value.as_sequence())
+    else {
+        return Ok(Vec::new());
+    };
+
+    let mut paths = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let Some(block) = entry.as_mapping() else {
+            continue;
+        };
+        let Some(path_pattern) = mapping_value(block, "path").and_then(|value| value.as_str())
+        else {
+            continue;
+        };
+        let path = Regex::new(path_pattern)
+            .map_err(|err| anyhow!("lint.paths[{}].path is not a valid regex: {err}", index + 1))?;
+        let mut rules = std::collections::BTreeMap::new();
+        for name in LINT_RULE_NAMES {
+            if let Some(value) = mapping_value(block, name) {
+                rules.insert((*name).to_string(), parse_lint_path_check(name, value)?);
+            }
+        }
+        paths.push(LintPathRule { path, rules });
+    }
+    Ok(paths)
 }
 
 /// Read the config's settings as a complete YAML document.
@@ -572,10 +1075,12 @@ pub fn config_from(raw: &str) -> Result<Config> {
                         .unwrap_or(true),
                     include: as_string_list(field("include")),
                     exclude: as_string_list(field("exclude")),
+                    ..Default::default()
                 },
             );
         }
     }
+    let lint_paths = parse_lint_paths(&meta)?;
 
     let mut tasks_statuses = std::collections::BTreeMap::new();
     if let Some(map) = tasks_get("statuses").and_then(|v| v.as_mapping()) {
@@ -613,6 +1118,7 @@ pub fn config_from(raw: &str) -> Result<Config> {
         exclude: as_string_list(get("exclude")),
         ignore_links: as_string_list(get("ignore_links")),
         lint_rules,
+        lint_paths,
         daily_folder: daily_get("folder", "Daily"),
         daily_template: daily_raw("template"),
         daily_format: daily_get("format", "YYYY-MM-DD"),
@@ -1177,6 +1683,69 @@ mod tests {
         refused(
             "lint:\n  rules:\n    frontmatter:\n      include:\n        - Notes/\n        - 7",
             &["`lint.rules.frontmatter.include` entry 2", "number"],
+        );
+    }
+
+    #[test]
+    fn lint_path_rules_use_ordered_unanchored_regexes_and_presence_enables() {
+        let config = settings(
+            "lint:\n  rules:\n    broken-links:\n      enabled: false\n    frontmatter:\n      enabled: false\n  paths:\n    - path: Questions\n      broken-links: false\n    - path: ^Questions/\n      broken-links:\n        pattern: ^legacy/\n      frontmatter:\n        required: [status]\n    - path: Questions/Important\n      broken-links: true\n",
+        )
+        .unwrap();
+
+        assert_eq!(config.lint_paths.len(), 3);
+        // Regex::is_match is deliberately used against the complete
+        // vault-relative path without adding anchors of our own.
+        assert!(config.lint_paths[0]
+            .path
+            .is_match("Archive/Questions/file.md"));
+        assert!(!config.lint_paths[0].path.is_match("Questionnaire/file.md"));
+
+        let frontmatter = &config.lint_paths[1].rules["frontmatter"];
+        assert!(frontmatter.enabled, "presence of a block enables the check");
+        assert_eq!(
+            frontmatter.frontmatter.as_ref().unwrap().required,
+            ["status"]
+        );
+        assert!(config.lint_paths[0].rules["broken-links"]
+            .broken_pattern
+            .is_none());
+        assert!(!config.lint_paths[0].rules["broken-links"].enabled);
+        // The last matching entry replaces the earlier check block in full.
+        let important = &config.lint_paths[2].rules["broken-links"];
+        assert!(important.enabled);
+        assert!(important.broken_pattern.is_none());
+    }
+
+    #[test]
+    fn lint_path_rules_reject_invalid_regex_types_and_fields() {
+        refused(
+            "lint:\n  paths:\n    - path: \"[\"",
+            &["`lint.paths[1].path`", "valid regex"],
+        );
+        refused(
+            "lint:\n  paths:\n    - path: Notes/\n      unknown: true",
+            &["`lint.paths[1].unknown`", "broken-links"],
+        );
+        refused(
+            "lint:\n  paths:\n    - path: Notes/\n      empty: 7",
+            &["`lint.paths[1].empty`", "true, false"],
+        );
+        refused(
+            "lint:\n  paths:\n    - path: Notes/\n      broken-links:\n        pattern: \"[\"",
+            &["`lint.paths[1].broken-links.pattern`", "valid regex"],
+        );
+        refused(
+            "lint:\n  paths:\n    - path: Notes/\n      frontmatter:\n        fields:\n          status:\n            type: timestamp",
+            &["`lint.paths[1].frontmatter.fields.status.type`", "date"],
+        );
+        refused(
+            "lint:\n  paths:\n    - path: Notes/\n      frontmatter:\n        fields:\n          status:\n            enum: [open, {nested: value}]",
+            &["`lint.paths[1].frontmatter.fields.status.enum` entry 2", "scalar"],
+        );
+        refused(
+            "lint:\n  paths:\n    - path: Notes/\n      frontmatter:\n        fields:\n          status:\n            required_if:\n              field: state",
+            &["`lint.paths[1].frontmatter.fields.status.required_if.equals`", "required"],
         );
     }
 

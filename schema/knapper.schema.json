@@ -49,6 +49,11 @@
             "empty": { "$ref": "#/$defs/lintRule" },
             "frontmatter": { "$ref": "#/$defs/lintRule" }
           }
+        },
+        "paths": {
+          "type": "array",
+          "description": "Ordered path-specific lint overrides. The last matching check wins.",
+          "items": { "$ref": "#/$defs/lintPath" }
         }
       }
     },
@@ -120,6 +125,108 @@
         "exclude": {
           "$ref": "#/$defs/stringList",
           "description": "Vault-relative path prefixes excluded from this check."
+        }
+      }
+    },
+    "lintPath": {
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Rust regex matched against the complete vault-relative path."
+        },
+        "broken-links": { "$ref": "#/$defs/lintPathBrokenLinks" },
+        "orphans": { "$ref": "#/$defs/lintPathBasic" },
+        "duplicates": { "$ref": "#/$defs/lintPathBasic" },
+        "empty": { "$ref": "#/$defs/lintPathBasic" },
+        "frontmatter": { "$ref": "#/$defs/lintPathFrontmatter" }
+      }
+    },
+    "lintPathBasic": {
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "lintPathBrokenLinks": {
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "pattern": {
+              "type": "string",
+              "description": "Rust regex matched against normalized unresolved link targets."
+            }
+          }
+        }
+      ]
+    },
+    "lintPathFrontmatter": {
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "required": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Fields that must be present."
+            },
+            "fields": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/frontmatterField" }
+            }
+          }
+        }
+      ]
+    },
+    "frontmatterField": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean", "date", "list", "object"]
+        },
+        "enum": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required_if": {
+          "type": "object",
+          "required": ["field", "equals"],
+          "additionalProperties": false,
+          "properties": {
+            "field": { "type": "string" },
+            "equals": {
+              "oneOf": [
+                { "type": "string" },
+                { "type": "number" },
+                { "type": "boolean" },
+                { "type": "null" }
+              ]
+            }
+          }
         }
       }
     },

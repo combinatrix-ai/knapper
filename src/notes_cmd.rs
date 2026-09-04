@@ -13,7 +13,8 @@ use serde_json::{json, Value};
 use crate::graph::build_link_graph;
 use crate::note::{parse_note, split_frontmatter};
 use crate::vault::{
-    all_notes, relative_path, resolve_path, Config, LintRuleConfig, LINT_RULE_NAMES,
+    all_notes, relative_path, resolve_path, Config, FrontmatterFieldType, FrontmatterPolicy,
+    LintRuleConfig, LINT_RULE_NAMES,
 };
 
 fn print_json(value: &Value) {
@@ -754,14 +755,32 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
         }
     }
 
-    // A rule disabled in the vault is omitted only from the default run. An
-    // explicit --check is an intentional request and always runs, while the
-    // path scope remains in force in either mode.
+    let notes = all_notes(config);
+    let note_paths: Vec<String> = notes
+        .iter()
+        .map(|path| relative_path(&config.vault_path, path))
+        .collect();
+    let explicit = !checks.is_empty();
+
+    // A rule disabled in the vault is omitted only from the default run. A
+    // path override can opt a disabled global rule back in, but only if its
+    // regex actually matches a note. An explicit --check is an intentional
+    // request and always runs, while path-level false remains a suppression.
     let selected: Vec<&str> = if checks.is_empty() {
         LINT_RULE_NAMES
             .iter()
             .copied()
-            .filter(|name| lint_rule(config, name).enabled)
+            .filter(|name| {
+                let global_enabled = config
+                    .lint_rules
+                    .get(*name)
+                    .map(|rule| rule.enabled)
+                    .unwrap_or(true);
+                global_enabled
+                    || note_paths
+                        .iter()
+                        .any(|path| lint_scope(config, name, path, false))
+            })
             .collect()
     } else {
         checks.iter().map(String::as_str).collect()
@@ -787,16 +806,33 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
         let count: usize = graph
             .broken
             .iter()
-            .filter(|(file, _)| lint_rule(config, "broken-links").matches(file))
-            .map(|(_, links)| links.len())
+            .map(|(file, links)| {
+                let (rule, _) = effective_lint_rule(config, "broken-links", file);
+                if !lint_scope(config, "broken-links", file, explicit) {
+                    return 0;
+                }
+                links
+                    .iter()
+                    .filter(|link| match &rule.broken_pattern {
+                        Some(pattern) => pattern.is_match(link),
+                        None => true,
+                    })
+                    .count()
+            })
             .sum();
         summary.insert("broken_links".into(), json!(count));
         total += count;
         for (file, links) in &graph.broken {
-            if !lint_rule(config, "broken-links").matches(file) {
+            let (rule, _) = effective_lint_rule(config, "broken-links", file);
+            if !lint_scope(config, "broken-links", file, explicit) {
                 continue;
             }
             for link in links {
+                if let Some(pattern) = &rule.broken_pattern {
+                    if !pattern.is_match(link) {
+                        continue;
+                    }
+                }
                 issues.push(json!({
                     "type": "broken-link", "file": file,
                     "detail": format!("[[{link}]]"), "severity": "warning"
@@ -820,7 +856,7 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
             .files
             .iter()
             .filter(|f| !f.starts_with('.'))
-            .filter(|f| lint_rule(config, "orphans").matches(f))
+            .filter(|f| lint_scope(config, "orphans", f, explicit))
             .filter(|f| graph.incoming.get(*f).map_or(true, |i| i.is_empty()))
             .collect();
         summary.insert("orphans".into(), json!(orphans.len()));
@@ -843,13 +879,11 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
         }
     }
 
-    let notes = all_notes(config);
-
     if selected.contains(&"duplicates") {
         let mut by_stem: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for path in &notes {
             let relative = relative_path(&config.vault_path, path);
-            if !lint_rule(config, "duplicates").matches(&relative) {
+            if !lint_scope(config, "duplicates", &relative, explicit) {
                 continue;
             }
             let stem = path
@@ -886,7 +920,7 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
         let mut empty = Vec::new();
         for path in &notes {
             let relative = relative_path(&config.vault_path, path);
-            if !lint_rule(config, "empty").matches(&relative) {
+            if !lint_scope(config, "empty", &relative, explicit) {
                 continue;
             }
             let Ok(content) = std::fs::read_to_string(path) else {
@@ -917,28 +951,52 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
 
     if selected.contains(&"frontmatter") {
         let mut missing = Vec::new();
+        let mut frontmatter_errors = 0usize;
+        let mut frontmatter_issues = Vec::new();
         for path in &notes {
             let relative = relative_path(&config.vault_path, path);
-            if !lint_rule(config, "frontmatter").matches(&relative) {
+            if !lint_scope(config, "frontmatter", &relative, explicit) {
                 continue;
             }
             let Ok(content) = std::fs::read_to_string(path) else {
                 continue;
             };
+            let (metadata, _) = split_frontmatter(&content);
             if !content.starts_with("---") {
-                missing.push(relative);
+                missing.push(relative.clone());
+                frontmatter_issues.push(json!({
+                    "type": "frontmatter", "file": relative,
+                    "detail": "No frontmatter", "severity": "info"
+                }));
+            }
+            let (rule, _) = effective_lint_rule(config, "frontmatter", &relative);
+            if let Some(policy) = &rule.frontmatter {
+                frontmatter_errors += add_frontmatter_policy_issues(
+                    &relative,
+                    &metadata,
+                    policy,
+                    &mut frontmatter_issues,
+                );
             }
         }
         missing.sort();
+        frontmatter_issues.sort_by(|a, b| {
+            let key = |issue: &Value| {
+                (
+                    issue["file"].as_str().unwrap_or_default().to_string(),
+                    issue["field"].as_str().unwrap_or_default().to_string(),
+                    issue["detail"].as_str().unwrap_or_default().to_string(),
+                )
+            };
+            key(a).cmp(&key(b))
+        });
+        issues.extend(frontmatter_issues);
         summary.insert("missing_frontmatter".into(), json!(missing.len()));
-        for file in &missing {
-            issues.push(json!({
-                "type": "frontmatter", "file": file,
-                "detail": "No frontmatter", "severity": "info"
-            }));
-        }
+        summary.insert("frontmatter_errors".into(), json!(frontmatter_errors));
+        total += missing.len() + frontmatter_errors;
         if format == "text" {
             println!("ℹ️ Missing frontmatter: {}", missing.len());
+            println!("ℹ️ Frontmatter errors: {frontmatter_errors}");
         }
     }
 
@@ -955,8 +1013,112 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
 /// Configs loaded from disk contain every rule, but keeping the fallback here
 /// preserves the all-enabled behaviour for callers constructing `Config`
 /// directly in tests or embedding the command.
-fn lint_rule(config: &Config, name: &str) -> LintRuleConfig {
-    config.lint_rules.get(name).cloned().unwrap_or_default()
+fn effective_lint_rule(config: &Config, name: &str, relative: &str) -> (LintRuleConfig, bool) {
+    let mut rule = config.lint_rules.get(name).cloned().unwrap_or_default();
+    let mut overridden = false;
+    for path in &config.lint_paths {
+        if path.path.is_match(relative) {
+            if let Some(path_rule) = path.rules.get(name) {
+                rule = path_rule.clone();
+                overridden = true;
+            }
+        }
+    }
+    (rule, overridden)
+}
+
+fn lint_scope(config: &Config, name: &str, relative: &str, explicit: bool) -> bool {
+    let (rule, overridden) = effective_lint_rule(config, name, relative);
+    (rule.enabled || (explicit && !overridden)) && rule.matches(relative)
+}
+
+fn frontmatter_type_matches(value: &serde_yaml::Value, expected: &FrontmatterFieldType) -> bool {
+    match expected {
+        FrontmatterFieldType::String => value.is_string(),
+        FrontmatterFieldType::Number => value.is_number(),
+        FrontmatterFieldType::Boolean => value.is_bool(),
+        FrontmatterFieldType::Date => value.as_str().is_some_and(|value| {
+            NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == value)
+        }),
+        FrontmatterFieldType::List => value.is_sequence(),
+        FrontmatterFieldType::Object => value.is_mapping(),
+    }
+}
+
+fn frontmatter_type_name(expected: &FrontmatterFieldType) -> &'static str {
+    match expected {
+        FrontmatterFieldType::String => "string",
+        FrontmatterFieldType::Number => "number",
+        FrontmatterFieldType::Boolean => "boolean",
+        FrontmatterFieldType::Date => "date",
+        FrontmatterFieldType::List => "list",
+        FrontmatterFieldType::Object => "object",
+    }
+}
+
+fn add_frontmatter_policy_issues(
+    file: &str,
+    metadata: &serde_yaml::Mapping,
+    policy: &FrontmatterPolicy,
+    issues: &mut Vec<Value>,
+) -> usize {
+    let mut errors = 0usize;
+    let mut required: Vec<&str> = Vec::new();
+    for field in &policy.required {
+        if !required.contains(&field.as_str()) {
+            required.push(field.as_str());
+        }
+        let present = metadata
+            .get(serde_yaml::Value::String(field.clone()))
+            .is_some_and(|value| !value.is_null());
+        if !present {
+            errors += 1;
+            issues.push(json!({
+                "type": "frontmatter", "file": file, "field": field,
+                "detail": "Required field is missing", "severity": "info"
+            }));
+        }
+    }
+
+    for (field, rule) in &policy.fields {
+        let key = serde_yaml::Value::String(field.clone());
+        let Some(value) = metadata.get(&key).filter(|value| !value.is_null()) else {
+            let required_if = rule.required_if.as_ref().is_some_and(|condition| {
+                metadata
+                    .get(serde_yaml::Value::String(condition.field.clone()))
+                    .is_some_and(|actual| actual == &condition.equals)
+            });
+            if required_if && !required.contains(&field.as_str()) {
+                errors += 1;
+                issues.push(json!({
+                    "type": "frontmatter", "file": file, "field": field,
+                    "detail": "Required field is missing because required_if matched",
+                    "severity": "info"
+                }));
+            }
+            continue;
+        };
+
+        let mut problems = Vec::new();
+        if let Some(expected) = &rule.field_type {
+            if !frontmatter_type_matches(value, expected) {
+                problems.push(format!("expected type {}", frontmatter_type_name(expected)));
+            }
+        }
+        if !rule.enum_values.is_empty() && !rule.enum_values.iter().any(|allowed| allowed == value)
+        {
+            problems.push("value is not in enum".to_string());
+        }
+        if !problems.is_empty() {
+            errors += 1;
+            issues.push(json!({
+                "type": "frontmatter", "file": file, "field": field,
+                "detail": problems.join("; "), "severity": "info"
+            }));
+        }
+    }
+    errors
 }
 
 /// Moment-style tokens, which is what both Templater and Core Templates use.

@@ -1000,6 +1000,14 @@ lint:
     #   enabled: false
     # duplicates:
     #   include: [Notes/]
+  # paths:
+  #   - path: ^Questions/
+  #     frontmatter:
+  #       required: [status]
+  #       fields:
+  #         status:
+  #           type: string
+  #           enum: [open, deciding, decided, dropped]
 daily_notes:
   folder: Daily
   template: Templates/daily.md
@@ -1029,6 +1037,20 @@ source file. The other file checks use the file being reported. Duplicate
 groups are kept only when at least two paths remain in scope, and only those
 paths are shown. Unknown rule names, fields and value types are configuration
 errors, as are unknown `--check` names.
+
+For finer-grained policies, `lint.paths` is an ordered list. Each entry
+requires a Rust regex `path`, matched against the complete vault-relative path
+without adding anchors. A path entry may set any check to a boolean shorthand
+or a block; when several entries match, the last entry that names that check
+wins, while an unnamed check inherits the global rule. A block enables its
+check by default, so a path can opt into a globally disabled check. The
+`broken-links` block accepts a `pattern` regex for normalized unresolved link
+targets. `frontmatter` accepts `required` keys and `fields` rules with
+`type` (`string`, `number`, `boolean`, `date`, `list`, `object`), scalar
+`enum`, and `required_if: {field, equals}`. Field errors are reported with the
+file and field and are included in `frontmatter_errors` and `total_issues`.
+An empty YAML value (`key:` or `key: null`) counts as unset: optional fields
+may remain empty, while `required` and a matching `required_if` still report it.
 
 Every setting is checked when it is read. An unknown key, a key of the wrong
 type, or a `template_engine` or `flavor` knapper does not implement is an

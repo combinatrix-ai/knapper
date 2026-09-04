@@ -29,6 +29,19 @@ exclude:                  # subtrees no whole-vault command should read
 #     #   exclude: [Sources/]
 #     # frontmatter:
 #     #   enabled: false
+#   # Ordered path-specific overrides. A later matching entry wins for each
+#   # check it names; path regexes are matched against the vault-relative path.
+#   # paths:
+#   #   - path: ^Projects/
+#   #     broken-links:
+#   #       pattern: "^legacy/"
+#   #   - path: ^Questions/
+#   #     frontmatter:
+#   #       required: [status]
+#   #       fields:
+#   #         status:
+#   #           type: string
+#   #           enum: [open, deciding, decided, dropped]
 daily_notes:
   folder: Daily
   template: Templates/daily.md
