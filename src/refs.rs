@@ -36,7 +36,11 @@ pub const MAX_LOCATOR: usize = 128;
 // The anchors are \A and \z rather than ^ and $ so that nothing -- a trailing
 // newline included -- can sit outside the match.
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\Aknapper://([a-z0-9][a-z0-9_-]*)/([A-Za-z0-9][A-Za-z0-9._/-]{0,127})\z").unwrap()
+    Regex::new(&format!(
+        r"\Aknapper://([a-z0-9][a-z0-9_-]*)/([A-Za-z0-9][A-Za-z0-9._/-]{{0,{}}})\z",
+        MAX_LOCATOR - 1
+    ))
+    .unwrap()
 });
 
 static PROVIDER_NAME: LazyLock<Regex> =

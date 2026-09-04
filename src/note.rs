@@ -7,7 +7,6 @@ use crate::parser;
 
 #[derive(Debug, Default, Clone)]
 pub struct Note {
-    pub path: String,
     pub title: String,
     pub content: String,
     pub frontmatter: serde_yaml::Mapping,
@@ -112,7 +111,6 @@ pub fn parse_note(path: &Path, content: &str) -> Note {
     }
 
     Note {
-        path: path.to_string_lossy().into_owned(),
         title: path
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
