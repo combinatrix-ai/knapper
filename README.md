@@ -52,7 +52,7 @@ because they require understanding the *structure* of a vault:
 - 🩹 **Link repair planning** — `repair-links --dry-run` finds the links that broke elsewhere and proposes only the repairs the filesystem settles
 - ✅ **Tasks** — query and mutate `- [ ]` checkboxes across the whole tree
 - 📇 **Frontmatter** — get, set, and delete YAML fields from the shell
-- 🩺 **Vault health** — `lint` finds broken links, orphans, duplicate names, stubs, missing frontmatter
+- 🩺 **Vault health** — `lint` finds missing notes, headings and block IDs, plus orphans, duplicate names, stubs and invalid frontmatter
 - 🧠 **`context FILE`** — everything an LLM needs about one note, in a single call
 - 🔐 **External references** — `knapper://` links to values a provider command resolves, kept out of the vault
 
@@ -91,7 +91,7 @@ is about**. Markdown structure looks regular enough to grep and is not:
 | `rg -o '\[\[' -g '*.md'` | `![[embeds]]`, `[[X\|alias]]`, `[[X#heading]]`, `[text](x.md)`; and it counts links inside code fences that aren't links | `knapper links` / `knapper backlinks` |
 | `rg -l '^status:' -g '*.md'` | a body line that starts the same way; quoted values, lists, Dataview `status:: open` | `knapper query --where status=open` |
 | `rg -l '#project' -g '*.md'` | `#project/sub` nests; a `#` in a URL or heading is not a tag | `knapper backlinks '#project'` |
-| `rg '\]\(.*\.md\)'` | which of those targets actually resolve, once basenames, aliases, relative paths and `ignore_links` are taken into account | `knapper broken-links` |
+| `rg '\]\(.*\.md\)'` | which targets actually resolve once basenames, aliases and relative paths are considered — and whether a `#heading` or `^block-id` exists in the resolved note | `knapper broken-links` |
 | `rg '^\s*- \[ \]'` | status characters (`- [/]`, `- [-]`), due dates, tags, excluded subtrees; and `--prose-only` drops the checkboxes that live in fenced examples | `knapper tasks --overdue --tag work` |
 
 ## Install
@@ -188,6 +188,56 @@ namespace, so `status=open`, `cost>40` and `inlinks=0` all work the same way.
 Operators are `=` `!=` `>` `<` `>=` `<=` `~` (contains), a bare name for
 "has this field" and `!name` for "does not". `knapper fields` lists what a
 given vault offers.
+
+## Broken links include headings and block IDs
+
+A link is only healthy when its complete destination exists. Resolving the
+note is not enough when the link names an anchor: knapper also checks that the
+heading or Obsidian block ID exists in the resolved Markdown note.
+
+| Form | What is checked |
+|---|---|
+| `[[#Install]]` | the `Install` heading in the current note |
+| `[[Guide#Install]]` | the `Install` heading in `Guide.md` |
+| `[[#^build-step]]` or `[[^build-step]]` | the `^build-step` block ID in the current note |
+| `[[Guide#^build-step]]` or `[[Guide^build-step]]` | the block ID in `Guide.md` |
+| `[Install](#Install)` | a local Markdown heading anchor |
+| `[Install](Guide.md#Install)` | a Markdown heading anchor in another note |
+
+Missing anchors are ordinary broken-link findings with precise reasons:
+
+```json
+{
+  "source": "Notes/Start here.md",
+  "line": 12,
+  "column": 5,
+  "syntax": "wikilink",
+  "raw": "[[Guide#Install]]",
+  "raw_target": "Guide#Install",
+  "target": "Guide#Install",
+  "reason": "missing-heading",
+  "status": "unresolved",
+  "candidates": [],
+  "note": "the heading does not exist in Notes/Guide.md"
+}
+```
+
+The reason is `missing-heading` or `missing-block`. `broken-links --format
+json` reports the occurrence, `lint --check broken-links` counts it, and
+`query --where broken>0` includes it in the source note's `broken` count.
+`repair-links` reports it but offers no edit: the filesystem cannot infer which
+heading or block the author intended.
+
+Heading comparison is case-insensitive, percent-decoded, and ignores optional
+closing `#` decoration (`## Install ##`). ATX and setext headings are indexed.
+Block IDs are read from the end of prose lines. Frontmatter, fenced and inline
+code, and `%%Obsidian comments%%` do not declare anchors. An escaped alias
+separator in a Markdown table (`[[Guide#Install\|setup]]`) is handled as an
+alias separator, not as part of the heading.
+
+An anchor-only link stays local navigation and does not create a self-edge in
+the link graph. A path-qualified anchor still creates the ordinary edge to its
+note; if the anchor is absent, the same occurrence is additionally broken.
 
 ## Hard links and soft tags
 
@@ -1054,6 +1104,12 @@ targets. `frontmatter` accepts `required` keys and `fields` rules with
 file and field and are included in `frontmatter_errors` and `total_issues`.
 An empty YAML value (`key:` or `key: null`) counts as unset: optional fields
 may remain empty, while `required` and a matching `required_if` still report it.
+
+Missing headings and block IDs are part of `broken-links`, so they inherit its
+global and path-specific `include`, `exclude`, `enabled`, and `pattern`
+settings. For an anchor failure, `pattern` sees the complete lint target after
+path normalization, such as `Guide#Install` or `#^build-step`; the anchor's
+written spelling is retained.
 
 Every setting is checked when it is read. An unknown key, a key of the wrong
 type, or a `template_engine` or `flavor` knapper does not implement is an
