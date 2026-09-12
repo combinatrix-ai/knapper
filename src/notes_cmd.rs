@@ -745,7 +745,7 @@ pub fn frontmatter_get(config: &Config, file: &str, key: Option<&str>, format: &
     Ok(())
 }
 
-pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
+pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
     for check in checks {
         if !LINT_RULE_NAMES.contains(&check.as_str()) {
             return Err(anyhow!(
@@ -1059,7 +1059,7 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
     } else {
         println!("\nTotal issues: {total}");
     }
-    Ok(())
+    Ok(total)
 }
 
 /// Configs loaded from disk contain every rule, but keeping the fallback here

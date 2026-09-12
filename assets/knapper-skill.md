@@ -537,6 +537,10 @@ command until it is removed.
 
 ## Vault health
 
+`knapper lint` exits 0 when no issues are found and 1 when any configured
+check reports an issue, including info and warning findings. Text and JSON
+reports are still printed in full; JSON includes `summary.total_issues`.
+
 `knapper.yaml` is a complete YAML document, not Markdown frontmatter. It
 includes a `yaml-language-server` schema modeline when created by `knapper
 init`. Use `knapper config check` for the authoritative runtime validation,

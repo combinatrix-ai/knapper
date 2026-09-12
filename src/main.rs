@@ -326,7 +326,7 @@ enum Command {
     /// Read and write frontmatter.
     #[command(subcommand)]
     Frontmatter(FrontmatterCommand),
-    /// Check vault health.
+    /// Check vault health (exit 1 when any issues are found).
     Lint {
         #[arg(
             long = "check",
@@ -691,7 +691,14 @@ fn run() -> Result<()> {
                 notes_cmd::move_note(&config, &source, &destination, dry_run, &format)
             }
         }
-        Command::Lint { check, format } => notes_cmd::lint(&config, &check, &format),
+        Command::Lint { check, format } => {
+            let total = notes_cmd::lint(&config, &check, &format)?;
+            if total > 0 {
+                std::io::Write::flush(&mut std::io::stdout())?;
+                std::process::exit(1);
+            }
+            Ok(())
+        }
         Command::Daily {
             date,
             path_only,
