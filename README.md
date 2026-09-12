@@ -1213,3 +1213,33 @@ MIT
 <p align="center">
   <i>Built for agents, by an agent.</i> 🐾
 </p>
+
+### Required headings
+
+Require section titles for selected paths with `lint.paths`:
+
+```yaml
+lint:
+  paths:
+    - path: '^Wiki/acquaintances/[^/]+\.md$'
+      headings:
+        required: [Bio, ユーザーとの関係, 交流履歴, 出典]
+```
+
+Run `knapper lint --check headings --format json`. Each missing title produces
+an issue with `type: headings`, `file`, `heading`, `detail`, and `severity`;
+`summary.missing_headings` counts missing titles. Text output lists the file and
+missing title. Like other lint checks, findings are reported without a nonzero
+exit code; automation should inspect `summary.total_issues`.
+
+Titles use the same normalization as heading anchors (case-insensitive, surrounding
+whitespace and trailing ATX decoration ignored; inline markup remains literal). ATX and Setext Markdown headings and Org headings count;
+frontmatter, closed code blocks, and comments do not. Level, order, uniqueness,
+and section contents are not constrained. Duplicate normalized requirements
+produce only one issue. An empty `required` list imposes no constraint. No
+required headings are assumed for unconfigured paths.
+
+`headings: false` disables a matching path; `true` enables it without requirements.
+Global `lint.rules.headings` supports enabled/include/exclude, and later matching
+path rules replace earlier heading policies in full (including global scope),
+following the other lint checks. Top-level `exclude` always applies.

@@ -19,6 +19,7 @@ pub const LINT_RULE_NAMES: &[&str] = &[
     "duplicates",
     "empty",
     "frontmatter",
+    "headings",
 ];
 
 pub const LINT_FIELD_TYPES: &[&str] = &["string", "number", "boolean", "date", "list", "object"];
@@ -79,6 +80,8 @@ pub struct LintRuleConfig {
     pub broken_pattern: Option<Regex>,
     /// Additional checks for YAML frontmatter, supplied by a path rule.
     pub frontmatter: Option<FrontmatterPolicy>,
+    /// Required heading titles, normalized like heading link anchors.
+    pub required_headings: Vec<String>,
 }
 
 impl PartialEq for LintRuleConfig {
@@ -89,6 +92,7 @@ impl PartialEq for LintRuleConfig {
             && self.broken_pattern.as_ref().map(Regex::as_str)
                 == other.broken_pattern.as_ref().map(Regex::as_str)
             && self.frontmatter == other.frontmatter
+            && self.required_headings == other.required_headings
     }
 }
 
@@ -102,6 +106,7 @@ impl Default for LintRuleConfig {
             exclude: Vec::new(),
             broken_pattern: None,
             frontmatter: None,
+            required_headings: Vec::new(),
         }
     }
 }
@@ -676,6 +681,22 @@ fn check_path_check(path: &str, name: &str, value: &serde_yaml::Value) -> Result
                 }
             }
         }
+        "headings" => {
+            for (key, entry) in block {
+                match key.as_str() {
+                    Some("enabled") if entry.is_bool() => {},
+                    Some("required") => {
+                        check_string_sequence(&format!("{path}.headings.required"), entry)?;
+                        for title in entry.as_sequence().unwrap() {
+                            if crate::parser::normalize_heading(title.as_str().unwrap()).is_empty() {
+                                return Err(anyhow!("`{path}.headings.required` titles must not be empty"));
+                            }
+                        }
+                    }
+                    _ => return Err(anyhow!("invalid setting in `{path}.headings`: expected enabled (boolean) or required (list of non-empty titles)")),
+                }
+            }
+        }
         "frontmatter" => check_frontmatter_path_rule(&format!("{path}.{name}"), block)?,
         _ => {
             for (key, entry) in block {
@@ -917,6 +938,19 @@ fn parse_lint_path_check(name: &str, value: &serde_yaml::Value) -> Result<LintRu
         enabled,
         broken_pattern,
         frontmatter,
+        required_headings: if name == "headings" {
+            mapping_value(block, "required")
+                .and_then(|v| v.as_sequence())
+                .map(|titles| {
+                    titles
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        },
         ..Default::default()
     })
 }

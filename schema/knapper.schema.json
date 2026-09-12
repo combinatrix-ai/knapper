@@ -47,7 +47,8 @@
             "orphans": { "$ref": "#/$defs/lintRule" },
             "duplicates": { "$ref": "#/$defs/lintRule" },
             "empty": { "$ref": "#/$defs/lintRule" },
-            "frontmatter": { "$ref": "#/$defs/lintRule" }
+            "frontmatter": { "$ref": "#/$defs/lintRule" },
+            "headings": { "$ref": "#/$defs/lintRule" }
           }
         },
         "paths": {
@@ -141,7 +142,8 @@
         "orphans": { "$ref": "#/$defs/lintPathBasic" },
         "duplicates": { "$ref": "#/$defs/lintPathBasic" },
         "empty": { "$ref": "#/$defs/lintPathBasic" },
-        "frontmatter": { "$ref": "#/$defs/lintPathFrontmatter" }
+        "frontmatter": { "$ref": "#/$defs/lintPathFrontmatter" },
+        "headings": { "$ref": "#/$defs/lintPathHeadings" }
       }
     },
     "lintPathBasic": {
@@ -167,6 +169,23 @@
             "pattern": {
               "type": "string",
               "description": "Rust regex matched against normalized unresolved link targets."
+            }
+          }
+        }
+      ]
+    },
+    "lintPathHeadings": {
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "required": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1, "pattern": "\\S" },
+              "description": "Required heading titles. Uses heading-anchor normalization; ignores level and order."
             }
           }
         }

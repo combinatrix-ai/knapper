@@ -1000,6 +1000,58 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<()> {
         }
     }
 
+    if selected.contains(&"headings") {
+        let mut missing = Vec::new();
+        for path in &notes {
+            let relative = relative_path(&config.vault_path, path);
+            if !lint_scope(config, "headings", &relative, explicit) {
+                continue;
+            }
+            let (rule, _) = effective_lint_rule(config, "headings", &relative);
+            if rule.required_headings.is_empty() {
+                continue;
+            }
+            let content = std::fs::read_to_string(path)?;
+            let headings: std::collections::BTreeSet<String> =
+                if path.extension().and_then(|e| e.to_str()) == Some("org") {
+                    crate::org::parse_org(&crate::org::mask_org_noncontent(&content))
+                        .headings
+                        .iter()
+                        .map(|h| crate::parser::normalize_heading(&h.text))
+                        .collect()
+                } else {
+                    crate::parser::extract_anchor_inventory(&content).headings
+                };
+            let mut seen = std::collections::BTreeSet::new();
+            for title in &rule.required_headings {
+                let normalized = crate::parser::normalize_heading(title);
+                if seen.insert(normalized.clone()) && !headings.contains(&normalized) {
+                    missing.push(json!({
+                        "type": "headings", "file": relative, "heading": title,
+                        "detail": format!("Missing required heading: {title}"), "severity": "warning"
+                    }));
+                }
+            }
+        }
+        missing.sort_by(|a, b| {
+            (a["file"].as_str(), a["heading"].as_str())
+                .cmp(&(b["file"].as_str(), b["heading"].as_str()))
+        });
+        summary.insert("missing_headings".into(), json!(missing.len()));
+        total += missing.len();
+        if format == "text" {
+            println!("Missing headings: {}", missing.len());
+            for issue in &missing {
+                println!(
+                    "  {}: {}",
+                    issue["file"].as_str().unwrap(),
+                    issue["detail"].as_str().unwrap()
+                );
+            }
+        }
+        issues.extend(missing);
+    }
+
     summary.insert("total_issues".into(), json!(total));
 
     if format == "json" {
