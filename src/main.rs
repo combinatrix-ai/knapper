@@ -331,7 +331,7 @@ enum Command {
         #[arg(
             long = "check",
             value_name = "RULE",
-            value_parser = ["broken-links", "orphans", "duplicates", "empty", "frontmatter"],
+            value_parser = ["broken-links", "orphans", "duplicates", "empty", "frontmatter", "headings"],
             help = "Run one configured lint rule (repeatable)"
         )]
         check: Vec<String>,

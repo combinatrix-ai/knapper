@@ -417,3 +417,83 @@ fn valid_cross_note_anchors_are_edges_and_anchor_syntax_is_normalized() {
     let orphans = vault.json(&["orphans", "--format", "json"]);
     assert_eq!(orphans, serde_json::json!(["Source.md"]));
 }
+
+#[test]
+fn required_headings_use_prose_anchors_and_report_missing_titles() {
+    let vault = Vault::new(
+        "lint:\n  paths:\n    - path: '^People/'\n      headings:\n        required: [Bio, 出典, 関係, bio]\n",
+        &[
+            ("People/Good.md", "---\ntype: person\n---\n## BIO ###\n出典\n---\n### 関係\n"),
+            ("People/Bad.md", "---\nexample: |\n  ## Bio\n---\n```md\n## Bio\n```\n%%\n## 出典\n%%\n関係 is prose\n"),
+            ("Other.md", "No headings\n"),
+        ],
+    );
+    let report = vault.json(&["lint", "--check", "headings", "--format", "json"]);
+    assert_eq!(report["summary"]["missing_headings"], 3);
+    assert_eq!(report["summary"]["total_issues"], 3);
+    let issues = report["issues"].as_array().unwrap();
+    assert!(issues
+        .iter()
+        .all(|i| i["file"] == "People/Bad.md" && i["type"] == "headings"));
+    let text = vault.run(&["lint", "--check", "headings"]);
+    assert!(String::from_utf8_lossy(&text.stdout)
+        .contains("People/Bad.md: Missing required heading: Bio"));
+}
+
+#[test]
+fn heading_policies_obey_path_overrides_exclusions_and_org_blocks() {
+    let vault = Vault::new(
+        "exclude: [Excluded]\nlint:\n  rules:\n    headings:\n      enabled: false\n      exclude: [People/Ignored.md]\n  paths:\n    - path: '^People/'\n      headings:\n        required: [Bio]\n    - path: '^People/Skip'\n      headings: false\n    - path: '^People/Override'\n      headings:\n        required: [出典]\n    - path: '^Excluded/'\n      headings:\n        required: [Bio]\n",
+        &[
+            ("People/Good.org", "* Bio\n"),
+            ("People/Bad.org", "#+BEGIN_SRC text\n* Bio\n#+END_SRC\n"),
+            ("People/Skip.md", "none"),
+            ("People/Override.md", "## 出典\n"),
+            ("People/Ignored.md", "none"),
+            ("Excluded/X.md", "none"),
+        ],
+    );
+    for args in [
+        vec!["lint", "--format", "json"],
+        vec!["lint", "--check", "headings", "--format", "json"],
+    ] {
+        let report = vault.json(&args);
+        assert_eq!(report["summary"]["missing_headings"], 2);
+        assert!(report["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["file"] == "People/Bad.org" && i["type"] == "headings"));
+    }
+}
+
+#[test]
+fn heading_config_is_strict_and_schema_exposes_it() {
+    for settings in [
+        "required: Bio",
+        "required: [42]",
+        "required: ['  ']",
+        "enabled: nope",
+        "requried: [Bio]",
+    ] {
+        let vault = Vault::new(
+            &format!("lint:\n  paths:\n    - path: People\n      headings:\n        {settings}\n"),
+            &[],
+        );
+        assert!(
+            !vault.run(&["config", "check"]).status.success(),
+            "{settings}"
+        );
+    }
+    let vault = Vault::new(
+        "lint:\n  paths:\n    - path: People\n      headings: true\n",
+        &[("People/A.md", "nothing")],
+    );
+    assert_eq!(
+        vault.json(&["lint", "--check", "headings", "--format", "json"])["summary"]
+            ["missing_headings"],
+        0
+    );
+    let schema = vault.json(&["config", "schema"]);
+    assert!(schema["$defs"]["lintPathHeadings"].is_object());
+}
