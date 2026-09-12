@@ -1,6 +1,6 @@
 ---
 name: knapper
-description: Headless CLI for a directory of markdown notes. Reach for it whenever a question is about a vault's structure rather than its prose - and instead of a regex over markdown syntax, which gets embeds, aliases, heading anchors and code fences wrong. Covers backlinks and the link graph, broken links and orphans, tasks with due dates and statuses, frontmatter and Dataview fields, link-preserving rename and move, daily notes, vault lint, and knapper:// external references through a configured provider. Full-text search is deliberately absent: use rg for that. Triggers on: backlinks, wikilinks, broken links, orphans, link graph, daily note, tasks, due date, overdue, frontmatter, rename note, move note, vault, knowledge base, markdown notes, Obsidian, org-mode, knapper://, external reference, resolve.
+description: Query and edit note links, tasks, and metadata with knapper; use for structural queries, link-preserving moves, daily notes, or explicit knapper references. Use text search for prose.
 ---
 
 # knapper
@@ -34,8 +34,8 @@ command on the right is the answer you actually wanted.
 | `rg '\]\(.*\.md\)' -g '*.md'` | `knapper broken-links` | whether a target resolves depends on basenames, aliases, relative paths and `ignore_links` -- a regex can find link syntax but never tell you which links are broken |
 | `rg '^\s*- \[ \]' -g '*.md'` | `knapper tasks --overdue`, `--due-to`, `--tag`, `--status` | the regex has no notion of a status character (`- [/]`, `- [-]`, custom ones), a due date, a tag, or an excluded subtree |
 
-Search first, then ask knapper about the structure -- that is the composition
-that works:
+For a structural question, call the relevant knapper command directly. When
+a prose search is needed to locate a note first, combine the tools:
 
 ```bash
 rg -l "some phrase" Diary | head -3 | xargs -n1 knapper context --format json
@@ -656,8 +656,8 @@ lint:
 Run `knapper lint --check headings --format json`. Each missing title produces
 an issue with `type: headings`, `file`, `heading`, `detail`, and `severity`;
 `summary.missing_headings` counts missing titles. Text output lists the file and
-missing title. Like other lint checks, findings are reported without a nonzero
-exit code; automation should inspect `summary.total_issues`.
+missing title. Like other lint checks, any finding produces exit code 1;
+automation can also inspect `summary.total_issues`.
 
 Titles use the same normalization as heading anchors (case-insensitive, surrounding
 whitespace and trailing ATX decoration ignored; inline markup remains literal). ATX and Setext Markdown headings and Org headings count;
