@@ -286,13 +286,33 @@ pub fn anchor_kind(anchor: &str) -> Option<AnchorKind> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AnchorInventory {
     pub headings: BTreeSet<String>,
+    heading_slugs: BTreeSet<String>,
     pub blocks: BTreeSet<String>,
 }
 
 impl AnchorInventory {
+    fn insert_heading(&mut self, text: &str) {
+        let normalized = normalize_heading(text);
+        // Common Markdown fragment spelling: retain letters, numbers, marks,
+        // underscores and hyphens; turn spaces into hyphens and drop punctuation.
+        static PUNCTUATION: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"[^\p{L}\p{M}\p{N}_\- ]").unwrap());
+        let base = PUNCTUATION.replace_all(&normalized, "").replace(' ', "-");
+        let mut slug = base.clone();
+        let mut suffix = 0;
+        while self.heading_slugs.contains(&slug) {
+            suffix += 1;
+            slug = format!("{base}-{suffix}");
+        }
+        self.heading_slugs.insert(slug);
+        self.headings.insert(normalized);
+    }
+
     pub fn contains(&self, anchor: &str) -> bool {
         match anchor_kind(anchor) {
-            Some(AnchorKind::Heading(heading)) => self.headings.contains(&heading),
+            Some(AnchorKind::Heading(heading)) => {
+                self.headings.contains(&heading) || self.heading_slugs.contains(&heading)
+            }
             Some(AnchorKind::Block(id)) => self.blocks.contains(&id),
             None => false,
         }
@@ -344,7 +364,7 @@ pub fn extract_anchor_inventory(content: &str) -> AnchorInventory {
                 .map(|m| m.as_str())
                 .filter(|s| !s.trim().is_empty())
             {
-                inventory.headings.insert(normalize_heading(text));
+                inventory.insert_heading(text);
             }
         }
 
@@ -354,7 +374,7 @@ pub fn extract_anchor_inventory(content: &str) -> AnchorInventory {
             && SETEXT_HEADING.is_match(lines[index + 1])
             && !line.trim().is_empty()
         {
-            inventory.headings.insert(normalize_heading(line));
+            inventory.insert_heading(line);
         }
 
         if let Some(captures) = BLOCK_ID.captures(line) {
