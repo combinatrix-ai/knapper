@@ -114,6 +114,7 @@ impl Default for LintRuleConfig {
 #[derive(Debug, Clone)]
 pub struct LintPathRule {
     pub path: Regex,
+    pub predicates: Vec<crate::query::Predicate>,
     /// A check's presence in this map is itself an override. The parser gives
     /// block shorthand an enabled=true default, so a later matching entry can
     /// replace an earlier policy in full.
@@ -738,17 +739,33 @@ fn validate_lint_paths(path: &str, value: &serde_yaml::Value) -> Result<()> {
                 yaml_kind(entry)
             ));
         };
-        let Some(path_value) = block.get(serde_yaml::Value::String("path".into())) else {
-            return Err(anyhow!("`{entry_path}.path` is required"));
-        };
-        let Some(path_pattern) = path_value.as_str() else {
-            return Err(anyhow!(
-                "`{entry_path}.path` must be a regex string, but it is {}",
-                yaml_kind(path_value)
-            ));
-        };
-        Regex::new(path_pattern)
-            .map_err(|err| anyhow!("`{entry_path}.path` is not a valid regex: {err}"))?;
+        let path_value = block.get(serde_yaml::Value::String("path".into()));
+        let where_value = block.get(serde_yaml::Value::String("where".into()));
+        if path_value.is_none() && where_value.is_none() {
+            return Err(anyhow!("`{entry_path}` requires path or where"));
+        }
+        if let Some(value) = path_value {
+            let pattern = value
+                .as_str()
+                .ok_or_else(|| anyhow!("`{entry_path}.path` must be a regex string"))?;
+            Regex::new(pattern)
+                .map_err(|err| anyhow!("`{entry_path}.path` is not a valid regex: {err}"))?;
+        }
+        if let Some(value) = where_value {
+            let expressions = value
+                .as_sequence()
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| {
+                    anyhow!("`{entry_path}.where` must be a nonempty list of expressions")
+                })?;
+            for expression in expressions {
+                let expression = expression
+                    .as_str()
+                    .ok_or_else(|| anyhow!("`{entry_path}.where` entries must be strings"))?;
+                crate::query::parse_predicate(expression)
+                    .map_err(|err| anyhow!("`{entry_path}.where`: {err}"))?;
+            }
+        }
 
         for (key, value) in block {
             let Some(key) = key.as_str() else {
@@ -757,7 +774,7 @@ fn validate_lint_paths(path: &str, value: &serde_yaml::Value) -> Result<()> {
                     yaml_kind(key)
                 ));
             };
-            if key == "path" {
+            if key == "path" || key == "where" {
                 continue;
             }
             if !LINT_RULE_NAMES.contains(&key) {
@@ -969,19 +986,28 @@ fn parse_lint_paths(settings: &serde_yaml::Mapping) -> Result<Vec<LintPathRule>>
         let Some(block) = entry.as_mapping() else {
             continue;
         };
-        let Some(path_pattern) = mapping_value(block, "path").and_then(|value| value.as_str())
-        else {
-            continue;
-        };
+        let path_pattern = mapping_value(block, "path")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
         let path = Regex::new(path_pattern)
             .map_err(|err| anyhow!("lint.paths[{}].path is not a valid regex: {err}", index + 1))?;
+        let predicates = mapping_value(block, "where")
+            .and_then(|v| v.as_sequence())
+            .into_iter()
+            .flatten()
+            .map(|v| crate::query::parse_predicate(v.as_str().unwrap()))
+            .collect::<Result<Vec<_>>>()?;
         let mut rules = std::collections::BTreeMap::new();
         for name in LINT_RULE_NAMES {
             if let Some(value) = mapping_value(block, name) {
                 rules.insert((*name).to_string(), parse_lint_path_check(name, value)?);
             }
         }
-        paths.push(LintPathRule { path, rules });
+        paths.push(LintPathRule {
+            path,
+            predicates,
+            rules,
+        });
     }
     Ok(paths)
 }

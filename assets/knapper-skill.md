@@ -537,6 +537,21 @@ command until it is removed.
 
 ## Vault health
 
+```bash
+knapper lint Notes/One.md "Notes/Two words.md"
+knapper lint --diff             # staged + unstaged + untracked notes
+knapper lint --diff main        # working-tree changes against ref + untracked notes
+```
+
+Filenames are vault-relative or absolute. Explicit files and `--diff` cannot be
+combined. Invalid files or refs are errors; deleted and excluded notes are not
+selected, and an empty selection returns 0. JSON adds `scope.files`.
+Selection limits reported source notes, while graph/duplicate checks still use
+unchanged peers. Run full lint after deletions or rule changes to catch effects
+on unchanged notes; `--diff` does not lint a staged-content snapshot.
+Existing in-vault directories are valid link targets without requiring README.
+
+
 `knapper lint` exits 0 when no issues are found and 1 when any configured
 check reports an issue, including info and warning findings. Text and JSON
 reports are still printed in full; JSON includes `summary.total_issues`.
@@ -573,9 +588,12 @@ Broken links use the source path; orphan, duplicate, empty and frontmatter
 checks use the reported file path. Unknown rule names/fields/types and unknown
 `--check` names are errors.
 
-For path-specific policies, add an ordered `lint.paths` list. Each entry has a
-required Rust regex `path`, matched against the complete vault-relative path
-without implicit anchors. A later entry wins for a check it names; an unnamed
+For conditional policies, add an ordered `lint.paths` list. Each entry requires
+`path` (Rust regex), `where` (nonempty list of query expressions), or both.
+The path matches the complete vault-relative path without implicit anchors;
+all `where` expressions and the path must match. `where: ["type=manifest"]`
+selects notes by metadata rather than validating that field. Combine a path-only
+required-field rule with a type filter to catch missing types. A later entry wins for a check it names; an unnamed
 check inherits its global rule. Checks can be boolean shorthand or blocks:
 
 ```yaml
