@@ -494,6 +494,7 @@
   vault: obsidian
   args: [lint, --format, json]
   expect:
+    exit: 1
     json_at:
       summary.broken_links: 0
 
@@ -686,6 +687,7 @@
   # Lonely.md and Real.md. `knapper init` writes `exclude: [Templates/]` for
   # exactly this reason.
   expect:
+    exit: 1
     stdout_contains: ['"file": "Templates/daily.md"']
     json_at:
       summary.orphans: 3
@@ -765,6 +767,7 @@
   vault: ignorelinks
   args: [lint, --check, broken-links, --format, json]
   expect:
+    exit: 1
     json_at:
       summary.broken_links: 3
     stdout_excludes: ["Journal.md"]
@@ -1803,6 +1806,7 @@
   vault: repair
   args: [lint, --check, broken-links, --format, json]
   expect:
+    exit: 1
     json_at:
       summary.broken_links: 13
 

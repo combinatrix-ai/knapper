@@ -1229,8 +1229,9 @@ lint:
 Run `knapper lint --check headings --format json`. Each missing title produces
 an issue with `type: headings`, `file`, `heading`, `detail`, and `severity`;
 `summary.missing_headings` counts missing titles. Text output lists the file and
-missing title. Like other lint checks, findings are reported without a nonzero
-exit code; automation should inspect `summary.total_issues`.
+missing title. Like other lint checks, the command exits 1 when any findings
+are reported and 0 when `summary.total_issues` is zero. Both text and JSON
+output retain the complete report, including findings with info or warning severity.
 
 Titles use the same normalization as heading anchors (case-insensitive, surrounding
 whitespace and trailing ATX decoration ignored; inline markup remains literal). ATX and Setext Markdown headings and Org headings count;

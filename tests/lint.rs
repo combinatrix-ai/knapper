@@ -35,12 +35,20 @@ impl Vault {
 
     fn json(&self, args: &[&str]) -> serde_json::Value {
         let output = self.run(args);
-        assert!(
-            output.status.success(),
+        let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let expected = if args.first() == Some(&"lint") {
+            i32::from(report["summary"]["total_issues"].as_u64().unwrap() > 0)
+        } else {
+            0
+        };
+        assert_eq!(
+            output.status.code(),
+            Some(expected),
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        serde_json::from_slice(&output.stdout).unwrap()
+        assert!(output.stderr.is_empty());
+        report
     }
 }
 
@@ -496,4 +504,24 @@ fn heading_config_is_strict_and_schema_exposes_it() {
     );
     let schema = vault.json(&["config", "schema"]);
     assert!(schema["$defs"]["lintPathHeadings"].is_object());
+}
+
+#[test]
+fn lint_exit_status_tracks_findings_in_text_and_json() {
+    let vault = Vault::new(
+        "lint:\n  paths:\n    - path: '^People/'\n      headings:\n        required: [Bio]\n",
+        &[("People/A.md", "## Other\n")],
+    );
+    for format in ["text", "json"] {
+        let output = vault.run(&["lint", "--check", "headings", "--format", format]);
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stderr.is_empty());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Bio"));
+    }
+    fs::write(vault.root.path().join("People/A.md"), "## Bio\n").unwrap();
+    for format in ["text", "json"] {
+        let output = vault.run(&["lint", "--check", "headings", "--format", format]);
+        assert_eq!(output.status.code(), Some(0));
+        assert!(output.stderr.is_empty());
+    }
 }

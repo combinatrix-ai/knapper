@@ -351,10 +351,9 @@ fn the_occurrence_scan_and_the_graph_count_the_same_broken_links() {
 
     let occurrences = vault.run(&["broken-links", "--format", "json"]).ok().json();
     let occurrences = occurrences.as_array().unwrap().clone();
-    let graph = vault
-        .run(&["lint", "--check", "broken-links", "--format", "json"])
-        .ok()
-        .json();
+    let graph = vault.run(&["lint", "--check", "broken-links", "--format", "json"]);
+    assert_eq!(graph.code, 1);
+    let graph = graph.json();
 
     assert_eq!(
         serde_json::json!(occurrences.len()),
