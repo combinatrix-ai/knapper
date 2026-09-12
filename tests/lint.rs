@@ -525,3 +525,16 @@ fn lint_exit_status_tracks_findings_in_text_and_json() {
         assert!(output.stderr.is_empty());
     }
 }
+
+#[test]
+fn markdown_heading_slugs_resolve_without_weakening_required_titles() {
+    let vault = Vault::new(
+        "lint:\n  paths:\n    - path: Note\n      headings:\n        required: [quick-start]\n",
+        &[("Note.md", "## Quick Start\n## Quick Start\n## What's Next?\n## 日本語 見出し\n\n[one](#quick-start) [two](#quick-start-1) [next](#whats-next) [jp](#日本語-見出し) [missing](#quick-start-2)\n")],
+    );
+    let broken = vault.json(&["broken-links", "--format", "json"]);
+    assert_eq!(broken.as_array().unwrap().len(), 1);
+    assert_eq!(broken[0]["target"], "#quick-start-2");
+    let report = vault.json(&["lint", "--check", "headings", "--format", "json"]);
+    assert_eq!(report["summary"]["missing_headings"], 1);
+}

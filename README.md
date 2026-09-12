@@ -1077,6 +1077,10 @@ Obsidian-specific.
 
 ### Configuring lint rules
 
+Heading links accept visible titles and common Markdown slugs (`#quick-start`
+for `Quick Start`), including numbered duplicate slugs. Required-heading policies
+still compare heading titles, not slugs.
+
 `lint.rules` controls the five checks reported by `knapper lint`:
 `broken-links`, `orphans`, `duplicates`, `empty` and `frontmatter`. Every rule
 is enabled with no configuration, preserving the default all-checks report.
