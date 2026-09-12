@@ -34,6 +34,7 @@ pub struct LinkResolver {
     by_id: HashMap<String, String>,
     by_heading: HashMap<String, String>,
     markdown_anchors: HashMap<String, AnchorInventory>,
+    directories: HashMap<String, String>,
 }
 
 impl LinkResolver {
@@ -67,6 +68,7 @@ impl LinkResolver {
             by_id: ids.into_iter().collect(),
             by_heading: headings.into_iter().collect(),
             markdown_anchors: HashMap::new(),
+            directories: HashMap::new(),
         }
     }
 
@@ -75,7 +77,46 @@ impl LinkResolver {
         self
     }
 
+    fn with_directories(mut self, config: &Config) -> Self {
+        let root = config.vault_path.canonicalize().ok();
+        for entry in walkdir::WalkDir::new(&config.vault_path)
+            .into_iter()
+            .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_dir())
+        {
+            if let (Some(root), Ok(path)) = (&root, entry.path().canonicalize()) {
+                if !path.starts_with(root) {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+            let relative = relative_path(&config.vault_path, entry.path());
+            self.directories
+                .insert(relative.to_lowercase(), format!("{relative}/"));
+        }
+        self
+    }
+
+    fn resolve_directory(&self, source: &str, target: &str) -> Option<String> {
+        let target = target.trim_end_matches('/');
+        // Absolute paths and escapes never become a basename lookup.
+        if Path::new(target).is_absolute() || target.is_empty() {
+            return None;
+        }
+        if let Some(relative) = relative_target(source, target) {
+            if let Some(directory) = self.directories.get(&relative.to_lowercase()) {
+                return Some(directory.clone());
+            }
+        }
+        self.directories.get(&target.to_lowercase()).cloned()
+    }
+
     pub fn resolve(&self, source: &str, target: &str) -> Option<String> {
+        if target.ends_with('/') || target == "." || target == ".." {
+            return self.resolve_directory(source, target);
+        }
         // org id: and *Heading links carry their sigil through the parser.
         if let Some(id) = target.strip_prefix("id:") {
             return self.by_id.get(id.trim()).cloned();
@@ -96,6 +137,10 @@ impl LinkResolver {
             if let Some(hit) = self.resolve_path(&relative) {
                 return Some(hit);
             }
+        }
+
+        if let Some(directory) = self.resolve_directory(source, target) {
+            return Some(directory);
         }
 
         let lower = target.to_lowercase();
@@ -206,7 +251,7 @@ fn relative_target(source: &str, target: &str) -> Option<String> {
         }
     }
 
-    (!components.is_empty()).then(|| components.join("/"))
+    Some(components.join("/"))
 }
 
 /// Link targets a vault declares as intentionally unresolved, from the
@@ -441,7 +486,8 @@ fn scan_vault(config: &Config) -> (Vec<Parsed>, BTreeSet<String>, LinkResolver) 
     }
 
     let resolver = LinkResolver::new(files.clone(), target_files, aliases, ids, headings)
-        .with_markdown_anchors(markdown_anchors);
+        .with_markdown_anchors(markdown_anchors)
+        .with_directories(config);
     (parsed, files, resolver)
 }
 
@@ -473,7 +519,7 @@ pub fn build_link_graph(config: &Config) -> LinkGraph {
                     // An anchor-only link is navigation within one note, not
                     // a graph edge. A path-qualified link remains an edge even
                     // when its anchor is missing: the note relation is real.
-                    if link.target.is_some() {
+                    if link.target.is_some() && !resolved.ends_with('/') {
                         graph
                             .outgoing
                             .entry(entry.relative.clone())

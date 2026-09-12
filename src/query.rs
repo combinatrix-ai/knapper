@@ -22,7 +22,7 @@ pub const COMPUTED_FIELDS: &[&str] = &[
 ];
 
 /// Fields needing the whole link graph, which is the expensive part.
-const GRAPH_FIELDS: &[&str] = &["inlinks", "outlinks", "broken"];
+pub(crate) const GRAPH_FIELDS: &[&str] = &["inlinks", "outlinks", "broken"];
 
 #[derive(Debug, Clone)]
 pub struct Predicate {
@@ -103,7 +103,7 @@ fn flatten(value: &Value) -> String {
     }
 }
 
-fn matches(record: &serde_json::Map<String, Value>, p: &Predicate) -> bool {
+pub(crate) fn matches(record: &serde_json::Map<String, Value>, p: &Predicate) -> bool {
     let actual = record.get(&p.field);
 
     if p.op == "exists" {
@@ -164,7 +164,7 @@ fn matches(record: &serde_json::Map<String, Value>, p: &Predicate) -> bool {
     }
 }
 
-fn build_record(
+pub(crate) fn build_record(
     path: &Path,
     relative: &str,
     graph: Option<&LinkGraph>,

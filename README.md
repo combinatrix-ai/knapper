@@ -1075,14 +1075,39 @@ wrong types, unsupported values and semantic errors such as ambiguous task
 status markers without scanning any notes. Nothing in the config is
 Obsidian-specific.
 
+### Selecting files for lint
+
+```bash
+knapper lint Notes/One.md "Notes/Two words.md"
+knapper lint --diff                 # staged + unstaged + untracked notes
+knapper lint --diff main            # working-tree changes against this ref + untracked notes
+knapper lint Notes/One.md --check headings --format json
+```
+
+File arguments are vault-relative or absolute and may omit the note extension.
+Missing, excluded and out-of-vault files are rejected. File arguments and `--diff`
+cannot be combined. Git selection handles spaces, Unicode, renames and an unborn
+repository; deleted files, ignored untracked files and non-notes are not selected.
+A missing Git repository or invalid ref is an error, never a whole-vault fallback.
+An empty selection reports zero issues and exits 0. JSON includes `scope.files`
+for either selection mode; plain `lint` still checks the whole configured vault.
+
+Selection limits the source files reported, not the link-resolution universe:
+links may point to unchanged files, incoming links still prevent false orphans,
+and duplicate checks compare a selected note against unchanged peers in rule scope.
+Local checks only read selected note bodies (plus peers when a duplicate policy
+needs them). Graph checks and graph-field filters still read the full vault.
+Run a full lint after deleting notes or changing rules to catch effects on
+unchanged notes. `--diff` reads the working tree, not a staged-content snapshot.
+
 ### Configuring lint rules
 
 Heading links accept visible titles and common Markdown slugs (`#quick-start`
 for `Quick Start`), including numbered duplicate slugs. Required-heading policies
 still compare heading titles, not slugs.
 
-`lint.rules` controls the five checks reported by `knapper lint`:
-`broken-links`, `orphans`, `duplicates`, `empty` and `frontmatter`. Every rule
+`lint.rules` controls the six checks reported by `knapper lint`:
+`broken-links`, `orphans`, `duplicates`, `empty`, `frontmatter` and `headings`. Every rule
 is enabled with no configuration, preserving the default all-checks report.
 Set `enabled: false` to omit a rule from a plain `knapper lint`; an explicit
 `knapper lint --check RULE` always runs that rule. `--check` may be repeated.
@@ -1096,8 +1121,10 @@ paths are shown. Unknown rule names, fields and value types are configuration
 errors, as are unknown `--check` names.
 
 For finer-grained policies, `lint.paths` is an ordered list. Each entry
-requires a Rust regex `path`, matched against the complete vault-relative path
-without adding anchors. A path entry may set any check to a boolean shorthand
+requires `path`, `where`, or both. `path` is a Rust regex matched against the
+complete vault-relative path without adding anchors. `where` is a nonempty list
+of the same expressions accepted by `query --where`: frontmatter, inline fields,
+tags and computed fields are available. All expressions and the path must match. A path entry may set any check to a boolean shorthand
 or a block; when several entries match, the last entry that names that check
 wins, while an unnamed check inherits the global rule. A block enables its
 check by default, so a path can opt into a globally disabled check. The
@@ -1108,6 +1135,28 @@ targets. `frontmatter` accepts `required` keys and `fields` rules with
 file and field and are included in `frontmatter_errors` and `total_issues`.
 An empty YAML value (`key:` or `key: null`) counts as unset: optional fields
 may remain empty, while `required` and a matching `required_if` still report it.
+
+For example, apply a policy by note type rather than filename:
+
+```yaml
+lint:
+  paths:
+    - path: '^Logs/'
+      where: ['type=work-log-manifest', '!archived']
+      frontmatter:
+        required: [context, status]
+      headings:
+        required: [Result]
+```
+
+The filter selects notes; it does not require the filter field to exist.
+A separate path-only rule can require `type` so missing or mistyped types do
+not silently fall outside the intended policy.
+
+Existing in-vault directory links, such as `[docs](../docs/)`, are valid even
+without a README. Directories are not note nodes or duplicate/orphan candidates.
+Directory lookup never falls back to an unrelated basename, follows a directory
+symlink, or resolves a path outside the vault.
 
 Missing headings and block IDs are part of `broken-links`, so they inherit its
 global and path-specific `include`, `exclude`, `enabled`, and `pattern`

@@ -745,7 +745,13 @@ pub fn frontmatter_get(config: &Config, file: &str, key: Option<&str>, format: &
     Ok(())
 }
 
-pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
+pub fn lint(
+    config: &Config,
+    checks: &[String],
+    format: &str,
+    files: &[String],
+    diff: Option<&str>,
+) -> Result<usize> {
     for check in checks {
         if !LINT_RULE_NAMES.contains(&check.as_str()) {
             return Err(anyhow!(
@@ -756,6 +762,73 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
     }
 
     let notes = all_notes(config);
+    let selection = crate::lint_selection::select(config, &notes, files, diff)?;
+    let included = |path: &str| selection.as_ref().map_or(true, |set| set.contains(path));
+    if selection.as_ref().is_some_and(|set| set.is_empty()) {
+        if format == "json" {
+            print_json(
+                &json!({"issues": [], "summary": {"total_issues": 0}, "scope": {"files": []}}),
+            );
+        } else {
+            println!("No notes selected.\nTotal issues: 0");
+        }
+        return Ok(0);
+    }
+    let graph_needed = config
+        .lint_paths
+        .iter()
+        .flat_map(|r| &r.predicates)
+        .any(|p| crate::query::GRAPH_FIELDS.contains(&p.field.as_str()))
+        || ["broken-links", "orphans"].iter().any(|name| {
+            if !checks.is_empty() {
+                checks.iter().any(|c| c == name)
+            } else {
+                config.lint_rules.get(*name).map_or(true, |r| r.enabled)
+                    || config
+                        .lint_paths
+                        .iter()
+                        .any(|p| p.rules.get(*name).is_some_and(|r| r.enabled))
+            }
+        });
+    let graph = graph_needed.then(|| build_link_graph(config));
+    let compare_all_duplicates = if checks.is_empty() {
+        config
+            .lint_rules
+            .get("duplicates")
+            .map_or(true, |r| r.enabled)
+            || config
+                .lint_paths
+                .iter()
+                .any(|p| p.rules.get("duplicates").is_some_and(|r| r.enabled))
+    } else {
+        checks.iter().any(|c| c == "duplicates")
+    };
+    let mut records = BTreeMap::new();
+    if config.lint_paths.iter().any(|p| !p.predicates.is_empty()) {
+        let today = Local::now();
+        for path in &notes {
+            let relative = relative_path(&config.vault_path, path);
+            if (!included(&relative) && !compare_all_duplicates)
+                || !config
+                    .lint_paths
+                    .iter()
+                    .any(|p| !p.predicates.is_empty() && p.path.is_match(&relative))
+            {
+                continue;
+            }
+            let record = crate::query::build_record(path, &relative, graph.as_ref(), today)
+                .ok_or_else(|| anyhow!("cannot read note for lint filter: {relative}"))?;
+            records.insert(relative, record);
+        }
+    }
+    let effective =
+        |name: &str, path: &str| effective_lint_rule(config, name, path, records.get(path));
+    let rule_scope = |name: &str, path: &str, explicit: bool| {
+        lint_scope(config, name, path, explicit, records.get(path))
+    };
+    let scope =
+        |name: &str, path: &str, explicit: bool| included(path) && rule_scope(name, path, explicit);
+
     let note_paths: Vec<String> = notes
         .iter()
         .map(|path| relative_path(&config.vault_path, path))
@@ -776,10 +849,7 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
                     .get(*name)
                     .map(|rule| rule.enabled)
                     .unwrap_or(true);
-                global_enabled
-                    || note_paths
-                        .iter()
-                        .any(|path| lint_scope(config, name, path, false))
+                global_enabled || note_paths.iter().any(|path| scope(name, path, false))
             })
             .collect()
     } else {
@@ -792,14 +862,10 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
 
     if format == "text" {
         println!("Running lint checks...\n");
+        if let Some(files) = &selection {
+            println!("Selected notes: {}", files.len());
+        }
     }
-
-    // The link graph reads every note, so build it at most once even though
-    // two checks need it.
-    let graph = selected
-        .iter()
-        .any(|c| *c == "broken-links" || *c == "orphans")
-        .then(|| build_link_graph(config));
 
     if selected.contains(&"broken-links") {
         let graph = graph.as_ref().unwrap();
@@ -807,8 +873,8 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
             .broken
             .iter()
             .map(|(file, links)| {
-                let (rule, _) = effective_lint_rule(config, "broken-links", file);
-                if !lint_scope(config, "broken-links", file, explicit) {
+                let (rule, _) = effective("broken-links", file);
+                if !scope("broken-links", file, explicit) {
                     return 0;
                 }
                 links
@@ -823,8 +889,8 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
         summary.insert("broken_links".into(), json!(count));
         total += count;
         for (file, links) in &graph.broken {
-            let (rule, _) = effective_lint_rule(config, "broken-links", file);
-            if !lint_scope(config, "broken-links", file, explicit) {
+            let (rule, _) = effective("broken-links", file);
+            if !scope("broken-links", file, explicit) {
                 continue;
             }
             for link in links {
@@ -856,7 +922,7 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
             .files
             .iter()
             .filter(|f| !f.starts_with('.'))
-            .filter(|f| lint_scope(config, "orphans", f, explicit))
+            .filter(|f| scope("orphans", f, explicit))
             .filter(|f| graph.incoming.get(*f).map_or(true, |i| i.is_empty()))
             .collect();
         summary.insert("orphans".into(), json!(orphans.len()));
@@ -883,7 +949,7 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
         let mut by_stem: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for path in &notes {
             let relative = relative_path(&config.vault_path, path);
-            if !lint_scope(config, "duplicates", &relative, explicit) {
+            if !rule_scope("duplicates", &relative, explicit) {
                 continue;
             }
             let stem = path
@@ -895,9 +961,12 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
         // all_notes is newest-first for callers that care about recency. A
         // lint report should instead be stable between runs and clones.
         for paths in by_stem.values_mut() {
-            paths.sort();
+            paths.sort_by_key(|p| (!included(p), p.clone()));
         }
-        let dups: Vec<_> = by_stem.iter().filter(|(_, v)| v.len() > 1).collect();
+        let dups: Vec<_> = by_stem
+            .iter()
+            .filter(|(_, v)| v.len() > 1 && v.iter().any(|p| included(p)))
+            .collect();
         summary.insert("duplicates".into(), json!(dups.len()));
         total += dups.len();
         for (name, paths) in &dups {
@@ -920,7 +989,7 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
         let mut empty = Vec::new();
         for path in &notes {
             let relative = relative_path(&config.vault_path, path);
-            if !lint_scope(config, "empty", &relative, explicit) {
+            if !scope("empty", &relative, explicit) {
                 continue;
             }
             let Ok(content) = std::fs::read_to_string(path) else {
@@ -955,7 +1024,7 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
         let mut frontmatter_issues = Vec::new();
         for path in &notes {
             let relative = relative_path(&config.vault_path, path);
-            if !lint_scope(config, "frontmatter", &relative, explicit) {
+            if !scope("frontmatter", &relative, explicit) {
                 continue;
             }
             let Ok(content) = std::fs::read_to_string(path) else {
@@ -969,7 +1038,7 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
                     "detail": "No frontmatter", "severity": "info"
                 }));
             }
-            let (rule, _) = effective_lint_rule(config, "frontmatter", &relative);
+            let (rule, _) = effective("frontmatter", &relative);
             if let Some(policy) = &rule.frontmatter {
                 frontmatter_errors += add_frontmatter_policy_issues(
                     &relative,
@@ -1004,10 +1073,10 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
         let mut missing = Vec::new();
         for path in &notes {
             let relative = relative_path(&config.vault_path, path);
-            if !lint_scope(config, "headings", &relative, explicit) {
+            if !scope("headings", &relative, explicit) {
                 continue;
             }
-            let (rule, _) = effective_lint_rule(config, "headings", &relative);
+            let (rule, _) = effective("headings", &relative);
             if rule.required_headings.is_empty() {
                 continue;
             }
@@ -1055,7 +1124,11 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
     summary.insert("total_issues".into(), json!(total));
 
     if format == "json" {
-        print_json(&json!({"issues": issues, "summary": summary}));
+        let mut report = json!({"issues": issues, "summary": summary});
+        if let Some(files) = &selection {
+            report["scope"] = json!({"files": files});
+        }
+        print_json(&report);
     } else {
         println!("\nTotal issues: {total}");
     }
@@ -1065,11 +1138,21 @@ pub fn lint(config: &Config, checks: &[String], format: &str) -> Result<usize> {
 /// Configs loaded from disk contain every rule, but keeping the fallback here
 /// preserves the all-enabled behaviour for callers constructing `Config`
 /// directly in tests or embedding the command.
-fn effective_lint_rule(config: &Config, name: &str, relative: &str) -> (LintRuleConfig, bool) {
+fn effective_lint_rule(
+    config: &Config,
+    name: &str,
+    relative: &str,
+    record: Option<&serde_json::Map<String, Value>>,
+) -> (LintRuleConfig, bool) {
     let mut rule = config.lint_rules.get(name).cloned().unwrap_or_default();
     let mut overridden = false;
     for path in &config.lint_paths {
-        if path.path.is_match(relative) {
+        if path.path.is_match(relative)
+            && path
+                .predicates
+                .iter()
+                .all(|p| record.is_some_and(|r| crate::query::matches(r, p)))
+        {
             if let Some(path_rule) = path.rules.get(name) {
                 rule = path_rule.clone();
                 overridden = true;
@@ -1079,8 +1162,14 @@ fn effective_lint_rule(config: &Config, name: &str, relative: &str) -> (LintRule
     (rule, overridden)
 }
 
-fn lint_scope(config: &Config, name: &str, relative: &str, explicit: bool) -> bool {
-    let (rule, overridden) = effective_lint_rule(config, name, relative);
+fn lint_scope(
+    config: &Config,
+    name: &str,
+    relative: &str,
+    explicit: bool,
+    record: Option<&serde_json::Map<String, Value>>,
+) -> bool {
+    let (rule, overridden) = effective_lint_rule(config, name, relative, record);
     (rule.enabled || (explicit && !overridden)) && rule.matches(relative)
 }
 

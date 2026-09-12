@@ -13,6 +13,7 @@ mod commands;
 mod demote;
 mod graph;
 mod links;
+mod lint_selection;
 mod move_tree;
 mod note;
 mod notes_cmd;
@@ -335,6 +336,12 @@ enum Command {
             help = "Run one configured lint rule (repeatable)"
         )]
         check: Vec<String>,
+        /// Vault-relative or absolute note filenames (repeatable).
+        #[arg(value_name = "FILE", conflicts_with = "diff")]
+        files: Vec<String>,
+        /// Only changed notes: staged, unstaged and untracked; optionally compare to REF.
+        #[arg(long, num_args = 0..=1, default_missing_value = "", value_name = "REF")]
+        diff: Option<String>,
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
@@ -691,8 +698,13 @@ fn run() -> Result<()> {
                 notes_cmd::move_note(&config, &source, &destination, dry_run, &format)
             }
         }
-        Command::Lint { check, format } => {
-            let total = notes_cmd::lint(&config, &check, &format)?;
+        Command::Lint {
+            check,
+            format,
+            files,
+            diff,
+        } => {
+            let total = notes_cmd::lint(&config, &check, &format, &files, diff.as_deref())?;
             if total > 0 {
                 std::io::Write::flush(&mut std::io::stdout())?;
                 std::process::exit(1);

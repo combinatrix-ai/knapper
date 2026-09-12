@@ -538,3 +538,311 @@ fn markdown_heading_slugs_resolve_without_weakening_required_titles() {
     let report = vault.json(&["lint", "--check", "headings", "--format", "json"]);
     assert_eq!(report["summary"]["missing_headings"], 1);
 }
+
+#[test]
+fn rule_filters_share_query_fields_and_combine_with_paths() {
+    let vault = Vault::new(
+        "lint:\n  rules:\n    headings: {enabled: false}\n  paths:\n    - where: [type=manifest, '!archived']\n      headings: {required: [Result]}\n    - path: '^Notes/'\n      where: [status=done, words>2]\n      headings: {required: [Summary]}\n",
+        &[
+            ("Notes/a.md", "---\ntype: manifest\nstatus: done\n---\nEnough words in this note.\n"),
+            ("Other/b.md", "---\ntype: manifest\nstatus: done\n---\nEnough words in this note.\n"),
+            ("Other/skip.md", "---\ntype: manifest\narchived: true\n---\nNo heading\n"),
+            ("Other/inline.md", "type:: manifest\nEnough words in this note.\n"),
+            ("Other/missing-type.md", "No metadata\n"),
+        ],
+    );
+    let report = vault.json(&["lint", "--check", "headings", "--format", "json"]);
+    let issues = report["issues"].as_array().unwrap();
+    assert_eq!(issues.len(), 3, "{report}");
+    assert!(issues
+        .iter()
+        .any(|i| i["file"] == "Notes/a.md" && i["heading"] == "Summary"));
+    assert!(issues
+        .iter()
+        .any(|i| i["file"] == "Other/b.md" && i["heading"] == "Result"));
+    assert!(issues.iter().any(|i| i["file"] == "Other/inline.md"));
+}
+
+#[test]
+fn rule_filters_can_use_graph_fields_without_losing_unselected_inlinks() {
+    let vault = Vault::new(
+        "lint:\n  paths:\n    - where: [inlinks>0]\n      headings: {required: [Summary]}\n",
+        &[
+            ("Selected.md", "No heading\n"),
+            ("Other.md", "[[Selected]]\n"),
+        ],
+    );
+    let report = vault.json(&[
+        "lint",
+        "Selected.md",
+        "--check",
+        "headings",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(report["summary"]["missing_headings"], 1);
+}
+
+#[test]
+fn invalid_filter_config_is_rejected() {
+    for selector in [
+        "where: type=manifest",
+        "where: []",
+        "where: [4]",
+        "where: ['']",
+        "where: ['!']",
+    ] {
+        let vault = Vault::new(
+            &format!("lint:\n  paths:\n    - {selector}\n      headings: true\n"),
+            &[],
+        );
+        let out = vault.run(&["config", "check"]);
+        assert!(!out.status.success(), "{selector}");
+        assert!(String::from_utf8_lossy(&out.stderr).contains("where"));
+    }
+}
+
+#[test]
+fn explicit_files_limit_reports_but_not_reference_or_duplicate_context() {
+    let vault = Vault::new(
+        "",
+        &[
+            ("Chosen/A.md", "---\ntype: note\n---\n[[Target]]\n"),
+            ("Other/A.md", "A duplicate with enough content.\n"),
+            ("Target.md", "[[Chosen/A]] and [[Missing]]\n"),
+        ],
+    );
+    let report = vault.json(&[
+        "lint",
+        "Chosen/A.md",
+        "--check",
+        "broken-links",
+        "--check",
+        "orphans",
+        "--check",
+        "duplicates",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(report["scope"]["files"], serde_json::json!(["Chosen/A.md"]));
+    assert_eq!(report["summary"]["broken_links"], 0);
+    assert_eq!(report["summary"]["orphans"], 0);
+    assert_eq!(report["summary"]["duplicates"], 1);
+    assert_eq!(report["issues"][0]["file"], "Chosen/A.md");
+    assert!(report["issues"][0]["detail"]
+        .as_str()
+        .unwrap()
+        .contains("Other/A.md"));
+    assert!(!vault.run(&["lint", "does-not-exist.md"]).status.success());
+}
+
+#[test]
+fn explicit_files_support_spaces_multiple_absolute_paths_and_exclusions() {
+    let vault = Vault::new(
+        "exclude: [Excluded]\n",
+        &[
+            ("Space Name.md", "x"),
+            ("日本語.md", "x"),
+            ("Other.md", "x"),
+            ("Excluded/A.md", "x"),
+        ],
+    );
+    let absolute = vault.root.path().join("日本語.md");
+    let report = vault.json(&[
+        "lint",
+        "Space Name.md",
+        absolute.to_str().unwrap(),
+        "--check",
+        "empty",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(report["summary"]["empty"], 2);
+    assert!(!vault.run(&["lint", "Excluded/A.md"]).status.success());
+    let outside = tempdir().unwrap();
+    fs::write(outside.path().join("A.md"), "x").unwrap();
+    assert!(!vault
+        .run(&["lint", outside.path().join("A.md").to_str().unwrap()])
+        .status
+        .success());
+}
+
+fn git(vault: &Vault, args: &[&str]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(vault.root.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn init_git(vault: &Vault) {
+    git(vault, &["init", "-q"]);
+    git(vault, &["config", "user.name", "Test"]);
+    git(vault, &["config", "user.email", "test@example.invalid"]);
+}
+
+#[test]
+fn git_diff_includes_staged_unstaged_untracked_and_renames_but_not_deleted_or_ignored() {
+    let vault = Vault::new(
+        "",
+        &[
+            ("staged.md", "long enough initial content"),
+            ("unstaged.md", "long enough initial content"),
+            ("old.md", "long enough initial content"),
+            ("deleted.md", "long enough initial content"),
+            ("unchanged.md", "x"),
+        ],
+    );
+    init_git(&vault);
+    git(&vault, &["add", "."]);
+    git(&vault, &["commit", "-qm", "initial"]);
+    fs::write(vault.root.path().join("staged.md"), "x").unwrap();
+    git(&vault, &["add", "staged.md"]);
+    fs::write(vault.root.path().join("unstaged.md"), "x").unwrap();
+    fs::write(vault.root.path().join("untracked 日本語\n.md"), "x").unwrap();
+    git(&vault, &["mv", "old.md", "renamed.md"]);
+    git(&vault, &["rm", "deleted.md"]);
+    fs::write(vault.root.path().join(".gitignore"), "ignored.md\n").unwrap();
+    fs::write(vault.root.path().join("ignored.md"), "x").unwrap();
+    let report = vault.json(&["lint", "--diff", "--check", "empty", "--format", "json"]);
+    assert_eq!(
+        report["scope"]["files"],
+        serde_json::json!([
+            "renamed.md",
+            "staged.md",
+            "unstaged.md",
+            "untracked 日本語\n.md"
+        ])
+    );
+    assert_eq!(report["summary"]["empty"], 3);
+    assert!(!vault
+        .run(&["lint", "--diff", "no-such-ref"])
+        .status
+        .success());
+    assert_eq!(
+        vault
+            .run(&["lint", "--diff", "HEAD", "staged.md"])
+            .status
+            .code(),
+        Some(2)
+    );
+}
+
+#[test]
+fn git_diff_supports_unborn_repositories_and_empty_selection() {
+    let vault = Vault::new("", &[("A.md", "x")]);
+    assert!(!vault.run(&["lint", "--diff"]).status.success());
+    init_git(&vault);
+    let report = vault.json(&["lint", "--diff", "--check", "empty", "--format", "json"]);
+    assert_eq!(report["summary"]["empty"], 1);
+    git(&vault, &["add", "."]);
+    git(&vault, &["commit", "-qm", "initial"]);
+    let report = vault.json(&["lint", "--diff", "--format", "json"]);
+    assert_eq!(report["scope"]["files"], serde_json::json!([]));
+    assert_eq!(report["summary"]["total_issues"], 0);
+}
+
+#[test]
+fn git_diff_reference_and_nested_vault_use_repo_relative_git_paths() {
+    let vault = Vault::new(
+        "",
+        &[
+            ("Nested/A.md", "long enough initial content"),
+            ("Outside.md", "x"),
+        ],
+    );
+    init_git(&vault);
+    git(&vault, &["add", "."]);
+    git(&vault, &["commit", "-qm", "initial"]);
+    git(&vault, &["tag", "base"]);
+    fs::write(vault.root.path().join("Nested/A.md"), "x").unwrap();
+    git(&vault, &["add", "."]);
+    git(&vault, &["commit", "-qm", "change"]);
+    let report = vault.json(&[
+        "lint", "--diff", "base", "--check", "empty", "--format", "json",
+    ]);
+    assert_eq!(report["scope"]["files"], serde_json::json!(["Nested/A.md"]));
+    fs::write(vault.root.path().join("Nested/A.md"), "z").unwrap();
+    fs::write(vault.root.path().join("Outside.md"), "z").unwrap();
+    fs::write(vault.root.path().join("Nested/new.md"), "x").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_knapper"))
+        .args([
+            "--vault",
+            vault.root.path().join("Nested").to_str().unwrap(),
+            "lint",
+            "--diff",
+            "--check",
+            "empty",
+            "--format",
+            "json",
+        ])
+        .current_dir(vault.root.path())
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        report["scope"]["files"],
+        serde_json::json!(["A.md", "new.md"])
+    );
+}
+
+#[test]
+fn existing_directory_links_resolve_without_readme_or_note_graph_nodes() {
+    let vault = Vault::new("", &[("Notes/Source.md", "[empty](../Empty/) [folder](../Docs/) [local](./) [parent](../) [[Docs/]] [missing](../Absent/)\n"), ("Docs/Child.md", "A body with enough content.\n"), ("Other/Absent.md", "x")]);
+    fs::create_dir(vault.root.path().join("Empty")).unwrap();
+    let report = vault.json(&[
+        "lint",
+        "Notes/Source.md",
+        "--check",
+        "broken-links",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(report["summary"]["broken_links"], 1, "{report}");
+    let broken = vault.json(&["broken-links", "--format", "json"]);
+    assert_eq!(broken.as_array().unwrap().len(), 1);
+    let query = vault.json(&[
+        "query",
+        "--where",
+        "path=Notes/Source.md",
+        "--field",
+        "outlinks",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(query[0]["outlinks"], 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_links_do_not_escape_through_paths_or_symlinks() {
+    let vault = Vault::new(
+        "",
+        &[(
+            "A.md",
+            "[escape](../) [symlink](Outside/) [hidden](.hidden/)\n",
+        )],
+    );
+    let outside = tempdir().unwrap();
+    std::os::unix::fs::symlink(outside.path(), vault.root.path().join("Outside")).unwrap();
+    fs::create_dir(vault.root.path().join(".hidden")).unwrap();
+    let report = vault.json(&["lint", "--check", "broken-links", "--format", "json"]);
+    assert_eq!(report["summary"]["broken_links"], 3);
+}
+
+#[test]
+fn file_local_lint_does_not_read_unselected_note_bodies_for_filters() {
+    let vault = Vault::new(
+        "lint:\n  paths:\n    - where: [type=manifest]\n      headings: {required: [Result]}\n",
+        &[("A.md", "---\ntype: manifest\n---\n## Result\n")],
+    );
+    fs::write(vault.root.path().join("Unreadable.md"), [0xff, 0xfe]).unwrap();
+    let report = vault.json(&["lint", "A.md", "--check", "headings", "--format", "json"]);
+    assert_eq!(report["summary"]["total_issues"], 0);
+}
