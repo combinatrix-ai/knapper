@@ -28,6 +28,7 @@ mod tasks;
 mod templater;
 mod topic;
 mod update;
+mod update_notice;
 mod vault;
 
 use anyhow::Result;
@@ -269,8 +270,16 @@ enum Command {
         #[arg(long = "install")]
         install: bool,
     },
-    /// Replace this binary with the newest release.
+    #[command(hide = true)]
+    UpdateCheckInternal,
+    /// Verify release provenance and replace this binary with the newest release.
     SelfUpdate {
+        /// Reinstall the latest release even if the version matches.
+        #[arg(long, conflicts_with = "check")]
+        force: bool,
+        /// Keep externally managed agent skills unchanged.
+        #[arg(long)]
+        no_skill: bool,
         /// Report whether a newer release exists, without installing it.
         #[arg(long = "check")]
         check: bool,
@@ -546,6 +555,19 @@ fn broker(result: std::result::Result<(), providers::Failure>) -> Result<()> {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    if matches!(cli.command, Command::UpdateCheckInternal) {
+        return update_notice::refresh();
+    }
+    if !matches!(
+        cli.command,
+        Command::SelfUpdate { .. }
+            | Command::Skill { .. }
+            | Command::Config(_)
+            | Command::Provider(_)
+            | Command::Resolve { .. }
+    ) {
+        update_notice::notify_and_schedule();
+    }
 
     // None of these reads a vault, and the first has to work where no config
     // exists yet -- `init` is how a config comes to exist at all, so loading
@@ -559,7 +581,12 @@ fn run() -> Result<()> {
             return notes_cmd::config_check(cli.config.as_deref(), cli.vault.as_deref(), format)
         }
         Command::Skill { install } => return skill::run(*install),
-        Command::SelfUpdate { check, yes } => return update::run(*check, *yes),
+        Command::SelfUpdate {
+            check,
+            yes,
+            force,
+            no_skill,
+        } => return update::run(*check, *yes, *force, *no_skill),
         Command::Provider(ProviderCommand::List { format }) => {
             return broker(providers::list(format))
         }
@@ -630,6 +657,7 @@ fn run() -> Result<()> {
         Command::Init { .. }
         | Command::Config(..)
         | Command::Skill { .. }
+        | Command::UpdateCheckInternal
         | Command::SelfUpdate { .. }
         | Command::Provider(..)
         | Command::Resolve { .. } => {

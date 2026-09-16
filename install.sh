@@ -2,7 +2,7 @@
 # Install knapper, and register its agent skill.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/combinatrix-ai/knapper/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/combinatrix-ai/knapper/v0.1.0/install.sh | sh
 #   sh install.sh --version v0.1.0 --skill claude
 #   sh install.sh --register-skills-from ./target/release/knapper --skill both
 
@@ -25,6 +25,8 @@ Install the published knapper binary into a user-writable directory.
 
 Options:
   --version VERSION  Install VERSION (for example v0.1.0); default: latest
+  --target TARGET    Select a release target (normally detected automatically)
+  --expect-sha256 HEX Require the digest from an authenticated checksum manifest
   --bin-dir DIR      Install into DIR; default: $KNAPPER_BIN_DIR or ~/.local/bin
   --skill MODE       Register the embedded skill: auto, none, codex, claude, or both
   --register-skills-from BINARY
@@ -90,7 +92,7 @@ resolve_release_tag() {
   requested="$1"
   if [ "$requested" = "latest" ]; then
     latest_url="https://github.com/${KNAPPER_GITHUB_REPO}/releases/latest"
-    final_url="$(curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    final_url="$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
       --output /dev/null --write-out '%{url_effective}' "$latest_url")" \
       || die "could not resolve the latest knapper release"
     # With at least one release, /releases/latest redirects to /releases/tag/vX.
@@ -114,7 +116,7 @@ Build from source instead: git clone https://github.com/${KNAPPER_GITHUB_REPO} &
 }
 
 download() {
-  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
     --output "$2" "$1" \
     || die "download failed: $1"
 }
@@ -145,6 +147,15 @@ verify_checksum() {
   actual="$(sha256 "$archive_path")"
   expected="$(printf '%s' "$expected" | tr 'A-F' 'a-f')"
   [ "$actual" = "$expected" ] || die "checksum verification failed for $archive_file"
+}
+
+verify_expected_sha256() {
+  expected="$2"
+  case "$expected" in ''|*[!0-9a-fA-F]*) die "invalid expected SHA-256" ;; esac
+  [ "${#expected}" -eq 64 ] || die "invalid expected SHA-256"
+  actual="$(sha256 "$1")"
+  expected="$(printf '%s' "$expected" | tr 'A-F' 'a-f')"
+  [ "$actual" = "$expected" ] || die "attested checksum mismatch"
 }
 
 install_skill() {
@@ -218,9 +229,17 @@ main() {
   bin_dir="${KNAPPER_BIN_DIR:-$HOME/.local/bin}"
   skill_mode="auto"
   register_skills_from=""
+  requested_target=""
+  expect_sha256=""
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --target)
+        [ "$#" -ge 2 ] || die "--target requires a value"
+        requested_target="$2"; shift 2 ;;
+      --expect-sha256)
+        [ "$#" -ge 2 ] || die "--expect-sha256 requires a value"
+        expect_sha256="$2"; shift 2 ;;
       --version)
         [ "$#" -ge 2 ] || die "--version requires a value"
         requested_version="$2"
@@ -266,6 +285,12 @@ main() {
   target="$(detect_target "$(uname -s)" "$(uname -m)")" \
     || die "could not map this machine to a published knapper target"
 
+  if [ -n "$requested_target" ]; then
+    case "$requested_target" in
+      aarch64-apple-darwin|x86_64-apple-darwin|aarch64-unknown-linux-musl|x86_64-unknown-linux-musl) target="$requested_target" ;;
+      *) die "unsupported target: $requested_target" ;;
+    esac
+  fi
   release_tag="$(resolve_release_tag "$requested_version")"
   archive_name="$(release_asset_name "$release_tag" "$target")"
   release_base="https://github.com/${KNAPPER_GITHUB_REPO}/releases/download/${release_tag}"
@@ -281,11 +306,12 @@ main() {
   trap cleanup 0 1 2 15
 
   archive_path="$temporary_directory/$archive_name"
-  sums_path="$temporary_directory/SHA256SUMS"
+  sums_path="$temporary_directory/knapper-${release_tag}-checksums.txt"
   printf 'installing knapper %s for %s\n' "$release_tag" "$target"
   download "$release_base/$archive_name" "$archive_path"
-  download "$release_base/SHA256SUMS" "$sums_path"
+  download "$release_base/knapper-${release_tag}-checksums.txt" "$sums_path"
   verify_checksum "$archive_path" "$sums_path"
+  if [ -n "$expect_sha256" ]; then verify_expected_sha256 "$archive_path" "$expect_sha256"; fi
 
   extract_directory="$temporary_directory/extract"
   mkdir -p "$extract_directory"

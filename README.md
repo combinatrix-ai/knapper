@@ -4,8 +4,9 @@
 
 knapper reads and writes the note files directly. No app to launch, no daemon,
 no server, no index to build, no API keys — one binary, and nothing to install
-beside it. knapper itself touches the network only for `self-update`, which
-runs only when you ask for it by name. `knapper resolve` can execute a provider
+beside it. Interactive commands check GitHub for updates in the background
+at most once every six hours; `self-update` installs a verified release.
+Set `KNAPPER_NO_UPDATE_CHECK=1` to disable background checks. `knapper resolve` can execute a provider
 command you configured; whether that command uses the network is up to the
 provider you chose. knapper resolves **both** link syntaxes,
 `[[wikilinks]]` and `[inline](links.md)`, and reads `.org` files too, so it
@@ -103,20 +104,24 @@ virtualenv, no dependency resolution. That is the point: knapper is for
 machines where you would rather not stand up a runtime.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/combinatrix-ai/knapper/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/combinatrix-ai/knapper/v0.1.0/install.sh | sh
 ```
 
 That puts the binary in `~/.local/bin`, verifies it against the release's
-`SHA256SUMS`, and registers the agent skill with whichever of Claude Code and
+versioned checksum manifest, and registers the agent skill with whichever of Claude Code and
 Codex it finds. `--bin-dir`, `--version` and `--skill none` change all three;
 `--help` lists them.
 
 Or take the archive yourself, from
 [Releases](https://github.com/combinatrix-ai/knapper/releases):
 
+Choose the archive matching your OS and CPU. v0.1.0 supports macOS arm64 /
+x86_64 and Linux arm64 / x86_64 (musl). Windows is not a release target.
+
+Verify its GitHub Actions provenance before extracting it:
+
 ```bash
-curl -L https://github.com/combinatrix-ai/knapper/releases/latest/download/knapper-aarch64-apple-darwin.tar.gz | tar xz
-sudo mv knapper/knapper /usr/local/bin/
+gh attestation verify knapper-v0.1.0-aarch64-apple-darwin.tar.gz --repo combinatrix-ai/knapper
 ```
 
 Linux builds are musl-linked, so they run on Alpine and in a scratch
@@ -129,9 +134,23 @@ knapper self-update --check   # is there a newer release?
 knapper self-update           # install it
 ```
 
-It replaces the running binary in place, so it needs write permission where
-knapper lives — under `/usr/local/bin` that means `sudo`. This is the only
-command that opens a network connection.
+The updater verifies the checksum manifest's Sigstore provenance against the
+repository's numeric identity, release tag and release workflow, then passes
+the authenticated archive digest to its embedded installer. It never downloads
+a mutable installer to execute. Installation is atomic in the current binary's
+directory, which must be writable. `--yes` confirms noninteractive updates;
+`--force` reinstalls the latest version; `--no-skill` preserves managed skills.
+
+Automatic checks only notify; they never replace the executable. They run only
+with a terminal on stderr, outside CI, and leave stdout unchanged. Version and
+check-time cache files live under `$XDG_CACHE_HOME/knapper` (default
+`~/.cache/knapper`). No notes or provider values are sent. A failed check retains
+the last known notice. Explicit updates and configured provider commands may
+also use the network. Deleting the cache clears update-check state.
+
+For the first installation, the public installer verifies archive checksums;
+use `gh attestation verify` above for independent provenance verification.
+The installed binary's updater performs provenance verification itself.
 
 <details>
 <summary>From source</summary>
@@ -937,59 +956,6 @@ status: **2** for a malformed reference or bad usage, **3** for a provider that
 is not configured, **4** for a provider command that would not run, failed,
 timed out, or returned nothing usable.
 
-### Chrome fill bridge
-
-The optional `integration/chrome/` package exposes three modes from its action
-popup. **OFF** disconnects the bridge. **PICK** is the narrow, three-minute
-workflow: click a text field, then run
-`knapper-chrome-client knapper://... --expected-origin https://example.com`.
-Each successful fill discards that exact element and waits for the next manual
-field click.
-
-**ALL** is an explicit background form API. Chrome asks for access to the
-active page's exact origin; Chrome's own site-permission store is the allowlist.
-The permission and mode persist until the user turns ALL off, revokes the site
-permission, or closes Chrome. An agent can list permitted tabs, snapshot form
-metadata, and perform semantic form operations without bringing Chrome to the
-front:
-
-```sh
-printf '%s' '{"op":"tabs_list","origin":"https://example.com"}' |
-  knapper-chrome-client api
-printf '%s' '{"op":"form_snapshot","tab_id":419}' |
-  knapper-chrome-client api
-printf '%s' '{"op":"form_perform","tab_id":419,"document_id":"document_1","actions":[{"op":"set_from","target_id":"target_1","reference":"knapper://personal/address.home"}]}' |
-  knapper-chrome-client api
-```
-
-Snapshot `document_id`, `form_id`, and `target_id` values are temporary and
-become stale after navigation or relevant DOM changes. For a same-document
-rerender, `form_perform` takes one fresh snapshot and retries only when every
-target can be uniquely remapped by its form and semantic metadata. A missing
-or ambiguous target rejects the whole batch before any write; navigation is
-never retried. The API has no generic click, arbitrary JavaScript, or
-CSS-selector operation. It supports
-`set_from`, literal `set_value`, `select_option`, and `set_checked`; form
-submission is a separate explicit `form_submit` request. A value resolved by
-`set_from` remains write-only: later snapshots conservatively omit all current
-values in that document, including through framework rerenders. Before an
-opaque write, ALL can return ordinary page values, so it is intentionally
-limited to origins the user granted in Chrome.
-
-The Native Messaging host keeps resolved values on Chrome's pipe and returns
-only typed results over its user-only Unix socket.
-`knapper-chrome-client status` reports the current mode and, for PICK, its
-origin. See
-[`integration/chrome/README.md`](integration/chrome/README.md) for installation
-and the native-host manifest. That guide also includes a deterministic local
-web fixture that tests the installed extension, Native Messaging host, and CLI
-end to end without secrets or form submission.
-
-Provider commands are launched from Chrome's Native Messaging environment.
-On macOS that environment can have a narrower `PATH` than an interactive
-shell, so use an absolute executable path (for example
-`/opt/homebrew/bin/op`) for providers installed by Homebrew.
-
 ## Command reference
 
 | Command | What it does |
@@ -1017,9 +983,6 @@ shell, so use an absolute executable path (for example
 | `knapper tags` | List tags, or find files by tag with `--find` |
 | `knapper refs [FILE]` | Find `knapper://` references, optionally for one provider |
 | `knapper resolve REF` | Read one reference's value through its provider's command |
-| `knapper-chrome-client REF --expected-origin ORIGIN` | Fill the text control selected in Chrome without returning the value |
-| `knapper-chrome-client status` | Report the Chrome fill session mode and origin without returning a value or page URL |
-| `knapper-chrome-client api` | Read one typed ALL-mode form API request from stdin and return one JSON result |
 | `knapper provider list / set / remove` | Configure those commands, outside the vault |
 | `knapper skill` | Print the embedded agent skill, or `--install` it |
 | `knapper self-update` | Replace this binary with the newest release |

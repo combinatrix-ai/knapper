@@ -59,25 +59,6 @@ fn write_skill(path: &Path) -> Result<bool> {
     Ok(true)
 }
 
-/// Register the skill with every agent host on this machine.
-///
-/// Called after a successful self-update so the skill cannot drift behind the
-/// binary that documents itself.
-pub fn register() {
-    for (host, path) in skill_targets() {
-        match write_skill(&path) {
-            Ok(true) => println!(
-                "Registered the knapper skill for {host}: {}",
-                path.display()
-            ),
-            Ok(false) => {}
-            // A skill that cannot be written is worth saying, but never worth
-            // failing an update over.
-            Err(err) => eprintln!("Warning: could not register the {host} skill: {err}"),
-        }
-    }
-}
-
 pub fn run(install: bool) -> Result<()> {
     if !install {
         print!("{TEXT}");

@@ -164,7 +164,7 @@ pub fn orphans(config: &Config, format: &str, include_special: bool) -> Result<(
         .files
         .iter()
         .filter(|f| include_special || !f.starts_with('.'))
-        .filter(|f| graph.incoming.get(*f).map_or(true, |i| i.is_empty()))
+        .filter(|f| graph.incoming.get(*f).is_none_or(|i| i.is_empty()))
         .cloned()
         .collect();
 
@@ -256,7 +256,7 @@ fn filter_broken_links(config: &Config, occurrences: &mut Vec<repair::Occurrence
             && rule
                 .broken_pattern
                 .as_ref()
-                .map_or(true, |p| p.is_match(&o.target))
+                .is_none_or(|p| p.is_match(&o.target))
     });
     Ok(())
 }

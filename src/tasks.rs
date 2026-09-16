@@ -276,7 +276,7 @@ fn is_available_on(task: &Task, date: NaiveDate) -> bool {
     task.start_date
         .as_deref()
         .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
-        .map_or(true, |start| start <= date)
+        .is_none_or(|start| start <= date)
 }
 
 /// (line index, checkbox char, text) for the outliner notations.

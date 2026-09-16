@@ -8,8 +8,9 @@ description: Query and edit note links, tasks, and metadata with knapper; use fo
 One binary that reads and writes a directory of markdown notes directly -- an
 Obsidian vault, a Foam or Dendron workspace, a Zettelkasten, an org-roam
 directory, or any folder of `.md` files that has grown links. Nothing needs to
-be running. knapper itself touches the network only for `self-update`; a
-provider command configured for `resolve` may open its own connection.
+be running. Interactive commands may check GitHub for updates every six hours;
+`KNAPPER_NO_UPDATE_CHECK=1` disables these checks. A provider command configured
+for `resolve` may open its own connection.
 
 Use it for the operations that need to understand a vault's *structure*, which
 plain shell tools cannot do: the link graph, link-preserving renames, tasks,
@@ -473,51 +474,6 @@ There is no default timeout. `--timeout SECS` bounds the whole resolve,
 including the wait for provider stdout to close; a provider remains responsible
 for any further processes it starts.
 
-For a browser form fill, **do not call `resolve` and copy its stdout through
-the agent**. The optional Chrome bridge has two enabled modes. In **PICK**, the
-user chooses the intended visible text control and the extension badge says
-`ON`; run:
-
-```bash
-knapper-chrome-client "knapper://personal/address.nihonbashi_kobunacho" \
-  --expected-origin https://example.com
-```
-
-The selected tab and control accept matching local requests until PICK is
-turned off, reloaded, navigated, closed, or times out. The local caller cannot
-supply a selector.
-
-In **ALL**, Chrome's own site permissions define which origins the extension
-may access. Use the typed API without Computer Use or foregrounding Chrome:
-
-```bash
-printf '%s' '{"op":"tabs_list","origin":"https://example.com"}' |
-  knapper-chrome-client api
-printf '%s' '{"op":"form_snapshot","tab_id":419}' |
-  knapper-chrome-client api
-printf '%s' '{"op":"form_perform","tab_id":419,"document_id":"document_1","actions":[{"op":"set_from","target_id":"target_1","reference":"knapper://personal/address.nihonbashi_kobunacho"}]}' |
-  knapper-chrome-client api
-```
-
-Choose temporary targets from the snapshot's semantic metadata. For a
-same-document rerender, `form_perform` automatically takes one fresh snapshot
-and retries only when every target can be uniquely remapped by form plus
-`name`/`label`/`type`. A missing or ambiguous target rejects the whole batch
-before any write. A stale `document_id` is never retried: snapshot again, and
-never invent or retain IDs across navigation. Allowed operations are
-`set_from`, `set_value`, `select_option`, and `set_checked`. There is no generic
-click, CSS selector, or arbitrary JavaScript operation. `form_submit` is
-separate and must only be used when the user explicitly authorized submission;
-a successful API response means the browser dispatched submission, not that
-the remote service accepted it.
-
-A value resolved by `set_from` crosses only Chrome's Native Messaging pipe.
-The client never receives it, and later snapshots conservatively omit all
-current values in that document. Never fall back to raw `resolve`, a temporary
-file, or the clipboard when the bridge is absent, disconnected, stale, or
-rejected. Native Messaging can inherit a narrower `PATH` than an interactive
-shell on macOS, so configure an absolute provider executable path when needed.
-
 Provider commands live in `$XDG_CONFIG_HOME/knapper/providers.yaml`
 (`~/.config/knapper/providers.yaml` by default), never in the vault:
 
@@ -635,8 +591,13 @@ knapper self-update --check
 knapper self-update
 ```
 
-This is the only command where knapper itself opens a network connection; a
-provider command configured for `resolve` may open its own.
+The updater verifies Sigstore release provenance before atomically installing
+the authenticated archive through its embedded installer. `--yes` confirms a
+noninteractive update, `--force` reinstalls the latest release, and `--no-skill`
+preserves externally managed skills. Interactive commands notify of updates
+using a six-hour background check; set `KNAPPER_NO_UPDATE_CHECK=1` to disable it.
+No update notices are written to stdout. Cache files live in
+`$XDG_CACHE_HOME/knapper` or `~/.cache/knapper`.
 
 ## Notes that matter in practice
 

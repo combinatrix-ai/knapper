@@ -763,7 +763,7 @@ pub fn lint(
 
     let notes = all_notes(config);
     let selection = crate::lint_selection::select(config, &notes, files, diff)?;
-    let included = |path: &str| selection.as_ref().map_or(true, |set| set.contains(path));
+    let included = |path: &str| selection.as_ref().is_none_or(|set| set.contains(path));
     if selection.as_ref().is_some_and(|set| set.is_empty()) {
         if format == "json" {
             print_json(
@@ -783,7 +783,7 @@ pub fn lint(
             if !checks.is_empty() {
                 checks.iter().any(|c| c == name)
             } else {
-                config.lint_rules.get(*name).map_or(true, |r| r.enabled)
+                config.lint_rules.get(*name).is_none_or(|r| r.enabled)
                     || config
                         .lint_paths
                         .iter()
@@ -795,7 +795,7 @@ pub fn lint(
         config
             .lint_rules
             .get("duplicates")
-            .map_or(true, |r| r.enabled)
+            .is_none_or(|r| r.enabled)
             || config
                 .lint_paths
                 .iter()
@@ -923,7 +923,7 @@ pub fn lint(
             .iter()
             .filter(|f| !f.starts_with('.'))
             .filter(|f| scope("orphans", f, explicit))
-            .filter(|f| graph.incoming.get(*f).map_or(true, |i| i.is_empty()))
+            .filter(|f| graph.incoming.get(*f).is_none_or(|i| i.is_empty()))
             .collect();
         summary.insert("orphans".into(), json!(orphans.len()));
         total += orphans.len();

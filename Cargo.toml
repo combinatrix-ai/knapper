@@ -2,7 +2,7 @@
 name = "knapper"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"   # LazyLock
+rust-version = "1.90"
 description = "A headless CLI for markdown knowledge bases, built for AI agents"
 license = "MIT"
 repository = "https://github.com/combinatrix-ai/knapper"
@@ -10,14 +10,6 @@ repository = "https://github.com/combinatrix-ai/knapper"
 [[bin]]
 name = "knapper"
 path = "src/main.rs"
-
-[[bin]]
-name = "knapper-chrome-host"
-path = "src/bin/knapper-chrome-host.rs"
-
-[[bin]]
-name = "knapper-chrome-client"
-path = "src/bin/knapper-chrome-client.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -30,7 +22,9 @@ rayon = "1"
 percent-encoding = "2"
 chrono = "0.4"
 anyhow = "1"
-self_update = { version = "0.44", default-features = false, features = ["archive-tar", "compression-flate2", "ureq", "rustls"] }
+attestation-verify = { git = "https://github.com/combinatrix-ai/attestation-verify", rev = "73d3b53ecbf2d3c71846ae4cab3fa6482be012eb" }
+uuid = { version = "1", features = ["v4"] }
+tempfile = "3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

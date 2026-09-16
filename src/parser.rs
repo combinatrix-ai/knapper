@@ -116,7 +116,7 @@ fn blank_out(text: &str) -> String {
         if c == '\n' {
             out.push('\n');
         } else {
-            out.extend(std::iter::repeat(' ').take(c.len_utf8()));
+            out.extend(std::iter::repeat_n(' ', c.len_utf8()));
         }
     }
     out
