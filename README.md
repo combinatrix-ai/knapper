@@ -28,17 +28,17 @@ Plain text tools can find words. Maintaining a knowledge base also means
 understanding how notes, topics, metadata and tasks fit together. knapper
 brings those operations to the terminal, for people and agents alike:
 
-- **Structured queries** — filter and sort notes by frontmatter, inline fields, tags and computed link counts with `query`; discover available fields with `fields`.
-- **The link graph** — inspect incoming and outgoing links, find orphans and hubs, and detect broken links to notes, headings and block IDs.
-- **Link-safe refactors** — `rename` and `move` update links in both syntaxes; move whole directories and preview changes with `--dry-run`.
-- **Link repair planning** — `repair-links --dry-run` proposes repairs where the filesystem supplies unambiguous evidence.
-- **Tags and topics** — list tags, follow nested topics with `backlinks '#tag'` and `context '#tag'`, and use `demote` to turn topic-only wikilinks into tags.
-- **Tasks** — create, filter and update checkboxes across the tree, with dates, priorities, recurring markers and configurable statuses.
-- **Daily notes** — create or retrieve a dated note and expand Core Templates or supported Templater date expressions.
-- **Frontmatter** — read, set and delete typed YAML fields from the shell.
-- **Vault health** — find broken links, orphans, duplicate names and stubs; enforce frontmatter and required-heading rules by path or metadata, across the vault or only changed files.
-- **Context for agents** — get a note's content and relationships in one call, or focus on a search-hit line with its section and heading outline. JSON output and an embedded agent skill make automation straightforward.
-- **External references** — keep `knapper://` references in notes and resolve values through separately configured provider commands when needed.
+- 🔎 **Structured queries** — filter and sort notes by frontmatter, inline fields, tags and computed link counts with `query`; discover available fields with `fields`.
+- 🔗 **The link graph** — inspect incoming and outgoing links, find orphans and hubs, and detect broken links to notes, headings and block IDs.
+- ✂️ **Link-safe refactors** — `rename` and `move` update links in both syntaxes; move whole directories and preview changes with `--dry-run`.
+- 🩹 **Link repair planning** — `repair-links --dry-run` proposes repairs where the filesystem supplies unambiguous evidence.
+- 🏷️ **Tags and topics** — list tags, follow nested topics with `backlinks '#tag'` and `context '#tag'`, and use `demote` to turn topic-only wikilinks into tags.
+- ✅ **Tasks** — create, filter and update checkboxes across the tree, with dates, priorities, recurring markers and configurable statuses.
+- 📅 **Daily notes** — create or retrieve a dated note and expand Core Templates or supported Templater date expressions.
+- 📇 **Frontmatter** — read, set and delete typed YAML fields from the shell.
+- 🩺 **Vault health** — find broken links, orphans, duplicate names and stubs; enforce frontmatter and required-heading rules by path or metadata, across the vault or only changed files.
+- 🧠 **Context for agents** — get a note's content and relationships in one call, or focus on a search-hit line with its section and heading outline. JSON output and an embedded agent skill make automation straightforward.
+- 🔐 **External references** — keep `knapper://` references in notes and resolve values through separately configured provider commands when needed.
 
 Tags are Unicode-aware (`#café` and `#parent/child` both work), and one
 malformed YAML header never aborts a whole-vault scan. The
