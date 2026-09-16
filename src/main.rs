@@ -230,6 +230,9 @@ enum Command {
     /// Find links to missing notes, headings, or block IDs.
     #[command(name = "broken-links")]
     BrokenLinks {
+        /// Ignore lint enablement, scopes and patterns; retain exclude and ignore_links.
+        #[arg(long)]
+        all: bool,
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
@@ -610,7 +613,7 @@ fn run() -> Result<()> {
             format,
         } => commands::orphans(&config, &format, include_special),
         Command::Hubs { limit, format } => commands::hubs(&config, limit, &format),
-        Command::BrokenLinks { format } => commands::broken_links(&config, &format),
+        Command::BrokenLinks { format, all } => commands::broken_links(&config, &format, all),
         // Omitting --dry-run is a usage error, which is exit 2 -- and it is
         // refused before anything reads the vault, so there is no path on
         // which a missing flag could be read as consent to write.

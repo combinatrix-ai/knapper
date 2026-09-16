@@ -73,13 +73,13 @@ what they did; `rename` and `move` also accept `--format json` and
 
 ## Finding notes
 
-`query` is the general form; `orphans`, `hubs` and `broken-links` are presets
-over it.
+`query` is the general form; `orphans` and `hubs` are presets over it.
+`broken-links` adds occurrence details and applies lint policies by default.
 
 ```bash
 knapper query --where status=open --from Questions --sort inlinks:desc
 knapper query --where inlinks=0                  # what orphans does
-knapper query --where broken>0 --field broken    # what broken-links does
+knapper query --where broken>0 --field broken    # without lint policies
 knapper query --sort inlinks:desc --limit 10     # what hubs does
 knapper fields                                   # what this vault can be filtered on
 ```
@@ -145,7 +145,13 @@ being listed in `exclude:`, which is what `knapper init` writes.
 each record carries `source`, `line`, `column` (1-based, in characters, and
 `null` for org), `syntax`, `raw` (the link as written), `raw_target`, `target`
 (what the resolver was asked), `reason`, `status` and `candidates`. It reads
-the same scan as `repair-links`, so the two cannot disagree.
+the same scan as `repair-links`, then applies lint policies by default.
+Use `--all` to see the unfiltered diagnostic scope.
+
+`broken-links` respects the same enabled flags, source scopes, ordered path /
+metadata rules and target patterns as ordinary lint. Use `broken-links --all`
+for a diagnostic scan without those lint policies; top-level `exclude` and
+`ignore_links` still apply. `repair-links` remains an unfiltered diagnostic.
 
 ## Hard links and soft tags
 

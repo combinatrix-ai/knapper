@@ -846,3 +846,60 @@ fn file_local_lint_does_not_read_unselected_note_bodies_for_filters() {
     let report = vault.json(&["lint", "A.md", "--check", "headings", "--format", "json"]);
     assert_eq!(report["summary"]["total_issues"], 0);
 }
+
+#[test]
+fn broken_links_uses_lint_policy_and_all_keeps_vault_exclusions() {
+    let vault = Vault::new(
+        "exclude: [Archive/]\nignore_links: [Ignored]\nlint:\n  rules:\n    broken-links:\n      include: [Notes/]\n      exclude: [Notes/private/]\n  paths:\n    - where: ['status=archived']\n      broken-links: false\n    - path: '^Notes/special.md$'\n      where: ['broken>0']\n      broken-links:\n        pattern: '^legacy/'\n",
+        &[
+            ("Other.md", "[[Missing Other]]\n"),
+            ("Notes/keep.md", "[[Missing Keep]] [[Ignored]]\n"),
+            ("Notes/private/skip.md", "[[Private Missing]]\n"),
+            ("Archive/skip.md", "[[Archive Missing]]\n"),
+            ("Notes/archived.md", "---\nstatus: archived\n---\n[[Missing Archived]]\n"),
+            ("Notes/special.md", "---\nstatus: archived\n---\n[[legacy/missing]] [[Modern Missing]]\n"),
+        ],
+    );
+    let scoped = vault.json(&["broken-links", "--format", "json"]);
+    assert_eq!(scoped.as_array().unwrap().len(), 2);
+    assert_eq!(scoped[0]["source"], "Notes/keep.md");
+    assert_eq!(scoped[1]["target"], "legacy/missing");
+    let lint = vault.json(&["lint", "--format", "json"]);
+    assert_eq!(lint["summary"]["broken_links"], 2);
+    let paths = vault.run(&["broken-links", "--format", "paths"]);
+    assert_eq!(
+        String::from_utf8(paths.stdout).unwrap(),
+        "Notes/keep.md\nNotes/special.md\n"
+    );
+    let text = vault.run(&["broken-links"]);
+    assert!(String::from_utf8(text.stdout)
+        .unwrap()
+        .contains("Found 2 broken links in 2 files"));
+    let all = vault.json(&["broken-links", "--all", "--format", "json"]);
+    assert_eq!(all.as_array().unwrap().len(), 6);
+    assert!(all
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|o| o["target"] != "Ignored" && o["source"] != "Archive/skip.md"));
+}
+
+#[test]
+fn broken_links_all_overrides_global_disablement() {
+    let vault = Vault::new(
+        "lint:\n  rules:\n    broken-links:\n      enabled: false\n",
+        &[("note.md", "[[Missing]]")],
+    );
+    assert_eq!(
+        vault.json(&["broken-links", "--format", "json"]),
+        serde_json::json!([])
+    );
+    assert_eq!(
+        vault
+            .json(&["broken-links", "--all", "--format", "json"])
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}

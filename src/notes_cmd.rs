@@ -1138,7 +1138,7 @@ pub fn lint(
 /// Configs loaded from disk contain every rule, but keeping the fallback here
 /// preserves the all-enabled behaviour for callers constructing `Config`
 /// directly in tests or embedding the command.
-fn effective_lint_rule(
+pub(crate) fn effective_lint_rule(
     config: &Config,
     name: &str,
     relative: &str,

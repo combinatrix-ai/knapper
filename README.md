@@ -162,14 +162,14 @@ subdirectory.
 
 ## One filter over every note
 
-`orphans`, `hubs` and `broken-links` are the same question with the filter
-fixed. `query` is the general form, so the combinations nobody wrote a command
+`orphans` and `hubs` are preset queries. `broken-links` adds occurrence
+details and applies lint policies by default. `query` is the general form, so the combinations nobody wrote a command
 for are available:
 
 ```bash
 knapper query --where inlinks=0            # what orphans does
 knapper query --sort inlinks:desc --limit 10   # what hubs does
-knapper query --where broken>0 --field broken  # which notes broken-links names
+knapper query --where broken>0 --field broken  # notes with broken links, without lint policies
 ```
 
 The point is what those presets could not express — filtering on a note's own
@@ -673,11 +673,10 @@ knapper repair-links --dry-run --format json
 - Occurrences are ordered by source, then line, then column, so two runs over
   an unchanged vault produce identical bytes.
 
-`broken-links --format json` is the same records without the plan — one
+`broken-links --all --format json` is the same records without the plan — one
 object per occurrence, with the position, the text as written and the
-candidates. The two commands read one scan, so they cannot disagree about what
-is broken, and `lint --check broken-links` and `query --where broken>0` still
-count the same links.
+candidates. Without `--all`, `broken-links` applies the same policies as
+ordinary lint. `query --where broken>0` remains independent of lint policies.
 
 One consequence worth knowing: knapper resolves a path-qualified link by
 basename when the path itself misses, so `[[legacy/notes/Foo]]` to a live note
@@ -1297,3 +1296,12 @@ required headings are assumed for unconfigured paths.
 Global `lint.rules.headings` supports enabled/include/exclude, and later matching
 path rules replace earlier heading policies in full (including global scope),
 following the other lint checks. Top-level `exclude` always applies.
+
+### Broken-link inspection scope
+
+`knapper broken-links` respects the broken-links policies used by ordinary
+`knapper lint`, including enablement, include/exclude, ordered path and metadata
+rules, and target patterns. Its output retains detailed occurrence locations.
+Use `knapper broken-links --all` to bypass those lint policies for investigation;
+top-level `exclude` and `ignore_links` still apply. `repair-links` retains its
+unfiltered diagnostic scope.

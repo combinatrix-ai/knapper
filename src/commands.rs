@@ -210,6 +210,57 @@ pub fn hubs(config: &Config, limit: usize, format: &str) -> Result<()> {
     Ok(())
 }
 
+/// Apply the same ordered policies as ordinary lint, including metadata and
+/// graph predicates. Build each source record at most once.
+fn filter_broken_links(config: &Config, occurrences: &mut Vec<repair::Occurrence>) -> Result<()> {
+    let graph_needed = config
+        .lint_paths
+        .iter()
+        .filter(|p| p.rules.contains_key("broken-links"))
+        .flat_map(|p| &p.predicates)
+        .any(|p| crate::query::GRAPH_FIELDS.contains(&p.field.as_str()));
+    let graph = graph_needed.then(|| build_link_graph(config));
+    let today = chrono::Local::now();
+    let mut rules = BTreeMap::new();
+    for occurrence in occurrences.iter() {
+        let source = &occurrence.source;
+        if rules.contains_key(source) {
+            continue;
+        }
+        let needs_record = config.lint_paths.iter().any(|p| {
+            p.rules.contains_key("broken-links")
+                && !p.predicates.is_empty()
+                && p.path.is_match(source)
+        });
+        let record = if needs_record {
+            Some(
+                crate::query::build_record(
+                    &config.vault_path.join(source),
+                    source,
+                    graph.as_ref(),
+                    today,
+                )
+                .ok_or_else(|| anyhow!("cannot read note for lint filter: {source}"))?,
+            )
+        } else {
+            None
+        };
+        let (rule, _) =
+            crate::notes_cmd::effective_lint_rule(config, "broken-links", source, record.as_ref());
+        rules.insert(source.clone(), rule);
+    }
+    occurrences.retain(|o| {
+        let rule = &rules[&o.source];
+        rule.enabled
+            && rule.matches(&o.source)
+            && rule
+                .broken_pattern
+                .as_ref()
+                .map_or(true, |p| p.is_match(&o.target))
+    });
+    Ok(())
+}
+
 /// `broken-links` reports occurrences, not names.
 ///
 /// A target on its own says a link is broken; it does not say where, how it
@@ -217,9 +268,12 @@ pub fn hubs(config: &Config, limit: usize, format: &str) -> Result<()> {
 /// three are what a caller needs to act, so the JSON is one record per
 /// occurrence, carrying the position, the text as written, and the candidates
 /// `repair-links` would consider. The two commands read the same scan, so they
-/// can never disagree about what is broken.
-pub fn broken_links(config: &Config, format: &str) -> Result<()> {
-    let occurrences = repair::scan(config);
+/// agree about what is broken before lint filtering.
+pub fn broken_links(config: &Config, format: &str, all: bool) -> Result<()> {
+    let mut occurrences = repair::scan(config);
+    if !all {
+        filter_broken_links(config, &mut occurrences)?;
+    }
     let files: std::collections::BTreeSet<&str> =
         occurrences.iter().map(|o| o.source.as_str()).collect();
 
