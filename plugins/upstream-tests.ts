@@ -1,0 +1,12 @@
+import './test-harness';
+import '../vendor/tasks/tests/Query/Statement.test';
+import '../vendor/tasks/tests/Query/TaskCountDisplayText.test';
+import '../vendor/tasks/tests/Task/TaskRegularExpressions.test';
+import '../vendor/tasks/tests/lib/PriorityTools.test';
+import './runtime';
+import '../vendor/linter/__tests__/trailing-spaces.test';
+import '../vendor/linter/__tests__/remove-multiple-spaces.test';
+import '../vendor/linter/__tests__/heading-blank-lines.test';
+import '../vendor/quickadd/src/formatters/helpers/capturePlacement.test';
+import '../vendor/quickadd/src/formatters/helpers/userText.test';
+import '../vendor/quickadd/src/utils/noteContentInsertion.test';

@@ -35,6 +35,13 @@ jobs:
           pnpm --dir dql build
           git diff --exit-code -- dql/engine.js dql/upstream-tests.js dql/upstream-index.ts dql/THIRD_PARTY_NOTICES.txt
 
+      - name: Rebuild pinned community plugin bundles and notices
+        run: |
+          npm ci --prefix plugins --ignore-scripts --no-audit --no-fund
+          npm run build --prefix plugins
+          npm test --prefix plugins
+          git diff --exit-code -- plugins/tasks-engine.js plugins/linter-engine.js plugins/quickadd-engine.js plugins/upstream-tests.js plugins/THIRD_PARTY_NOTICES.txt
+
       - name: Unmodified upstream Jest suites
         run: pnpm --dir dql test
 

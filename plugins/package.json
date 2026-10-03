@@ -1,0 +1,42 @@
+{
+  "name": "knapper-plugin-engines",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test.mjs"
+  },
+  "dependencies": {
+    "moment": "2.31.0",
+    "boon-js": "2.0.5",
+    "chrono-node": "2.3.9",
+    "eventemitter2": "6.4.5",
+    "i18next": "24.2.1",
+    "mustache": "4.2.0",
+    "mustache-validator": "0.2.0",
+    "rrule": "2.8.1",
+    "safe-regex2": "5.1.1",
+    "async-lock": "1.4.1",
+    "diff-match-patch": "1.0.5",
+    "loglevel": "1.9.2",
+    "lru-cache": "11.5.2",
+    "mdast-util-from-markdown": "2.0.3",
+    "mdast-util-frontmatter": "2.0.1",
+    "mdast-util-gfm-autolink-literal": "2.0.1",
+    "mdast-util-gfm-footnote": "2.1.0",
+    "mdast-util-math": "3.0.0",
+    "meaw": "11.0.0",
+    "micromark-extension-frontmatter": "2.0.0",
+    "micromark-extension-gfm-autolink-literal": "2.1.0",
+    "micromark-extension-gfm-footnote": "2.1.0",
+    "micromark-extension-math": "3.1.0",
+    "micromark-util-combine-extensions": "2.0.1",
+    "moment-parseformat": "4.0.0",
+    "ts-dedent": "2.3.0",
+    "unist-util-visit": "5.1.0",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
+  }
+}
