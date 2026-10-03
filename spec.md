@@ -55,7 +55,7 @@ an upstream test count alone is not evidence of complete compatibility.
 | DV-RENDER | Query-block and inline-query rendering | None | Unsupported | No rendering adapter |
 | DV-JS | DataviewJS and Obsidian plugin API | None | Unsupported | Host I/O and arbitrary-JS checks in `tests/dql.rs` |
 | TASKS-DATA | Tasks checkbox/date/priority/recurrence conventions | Native `tasks` commands | Implemented subset | Obsidian fixture and task tests |
-| TASKS-QUERY | Tasks query-block language | `tasks --query` | Implemented pinned read-only subset | 40 selected upstream tests and six same-version actual-App/CLI references |
+| TASKS-QUERY | Tasks query-block language | `tasks --query` | Partial pinned read-only subset; text collation differs | 40 selected upstream tests and six same-version actual-App/CLI references |
 | LINTER-FORMAT | Linter deterministic spacing rules | `format-note` | Implemented three-rule subset | 54 selected upstream tests and six actual-App/CLI references |
 | QUICKADD-CAPTURE | QuickAdd explicit capture placement | `capture` | Implemented narrow native adapter using upstream helpers | 40 selected upstream tests and six actual-App/CLI references |
 | PERIODIC-NOTES | Periodic Notes configuration | None | Planned | Candidate assessment only |
@@ -362,6 +362,11 @@ JSON contains `type`, `total`, `beforeLimit`, and `groups` with `names`/`tasks`.
 Tasks expose path, one-based line, status marker, description, serialized Markdown,
 due date and upstream priority value. Heading context currently recognizes ATX
 headings; setext/callout/list hierarchy and full file metadata are not claimed.
+Text sorting/group ordering uses QuickJS's `localeCompare`, which does not reproduce
+App numeric/locale collation. The recorded known-gap fixture sorts `item10` before
+`item2`, while App sorts `item2` first. This can also affect default path tie-breaks
+and textual group names; arbitrary Unicode collation parity is not claimed. Fixing
+this requires a matching collation adapter and wider differential tests.
 No writes occur. Runtime limits: 256 MiB and 30 seconds, after Rust scanning.
 Six synthetic comparisons in `tests/fixtures/pkm/tasks-plugin-cases.json` agree
 with actual Obsidian 1.13.7 + Tasks 8.4.0 via official CLI; recorded CI replay is

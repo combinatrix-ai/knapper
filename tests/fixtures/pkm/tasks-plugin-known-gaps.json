@@ -1,0 +1,15 @@
+{
+  "id": "numeric-description-order",
+  "feature": "TASKS-QUERY",
+  "appVersion": "1.13.7",
+  "pluginVersion": "8.4.0",
+  "query": "path includes PluginTasks/Collation.md\nsort by description",
+  "obsidian": [
+    "item2",
+    "item10"
+  ],
+  "knapper": [
+    "item10",
+    "item2"
+  ]
+}

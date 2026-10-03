@@ -92,3 +92,8 @@ The script prepares synthetic PluginLinter/PluginCapture files and temporarily
 sets a Capture Choice in memory (restored afterwards). It refuses this committed
 fixture as a write target. It does not install plugins or change a regular Vault.
 Version mismatch, wrong vault, plugin absence and comparison differences fail.
+
+`PluginTasks/Collation.md` and `tasks-plugin-known-gaps.json` separately record an
+observed numeric text-order difference: App sorts item2 before item10; QuickJS
+currently sorts item10 first. This is a known gap, not one of the 18 matching cases.
+The live runner reports it separately and requires both recorded orders to agree.

@@ -499,6 +499,20 @@
       "baselineEqual": true
     }
   ],
-  "verifiedAt": "2026-10-03T13:53:29.585260+00:00",
+  "knownGaps": [
+    {
+      "id": "numeric-description-order",
+      "obsidian": [
+        "item2",
+        "item10"
+      ],
+      "knapper": [
+        "item10",
+        "item2"
+      ],
+      "recordedGapEqual": true
+    }
+  ],
+  "verifiedAt": "2026-10-03T14:03:18.719822+00:00",
   "transport": "actual-App/official-CLI"
 }

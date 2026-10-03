@@ -70,12 +70,21 @@ def main():
             if kind != 'tasks':
                 actual = actual['after']
             records.append({'id': case['id'], 'plugin': plugin, 'obsidian': expected, 'knapper': actual, 'liveEqual': actual == expected, 'baselineEqual': expected == case['expected']})
-    result = {'appVersion': command([args.obsidian_cli, 'version']), 'versions': info['versions'], 'comparisons': records}
+    gap = json.loads((vault / 'tasks-plugin-known-gaps.json').read_text())
+    observed = evaluate(TASKS_CODE.replace('QUERY', json.dumps(gap['query'])))
+    actual = json.loads(command([args.knapper, '-v', str(vault), '-c', str(vault / 'knapper.yaml'), 'tasks', '--query', gap['query'], '--format', 'json']))
+    def descriptions(value):
+        return [task['description'] for group in value['groups'] for task in group['tasks']]
+    known_gap = {'id': gap['id'], 'obsidian': descriptions(observed), 'knapper': descriptions(actual)}
+    known_gap['recordedGapEqual'] = known_gap['obsidian'] == gap['obsidian'] and known_gap['knapper'] == gap['knapper']
+    result = {'appVersion': command([args.obsidian_cli, 'version']), 'versions': info['versions'], 'comparisons': records, 'knownGaps': [known_gap]}
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
     failed = [c['id'] for c in records if not c['liveEqual'] or not c['baselineEqual']]
+    if not known_gap['recordedGapEqual']:
+        failed.append(gap['id'] + ' (known-gap behavior changed; review spec)')
     if failed:
         raise SystemExit('Mismatch: ' + ', '.join(failed))
-    print(f'{len(records)} plugin cases matched actual App and recorded expectations')
+    print(f'{len(records)} plugin cases matched; 1 recorded collation gap confirmed')
 
 
 if __name__ == '__main__':

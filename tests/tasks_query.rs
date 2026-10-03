@@ -47,3 +47,36 @@ fn tasks_query_rejects_native_flags_and_mutations() {
         assert!(!out.status.success());
     }
 }
+
+#[test]
+fn tasks_numeric_collation_gap_is_explicit() {
+    let vault = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pkm");
+    let gap: Value =
+        serde_json::from_str(include_str!("fixtures/pkm/tasks-plugin-known-gaps.json")).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_knapper"))
+        .env("KNAPPER_NO_UPDATE_CHECK", "1")
+        .arg("-v")
+        .arg(&vault)
+        .arg("-c")
+        .arg(vault.join("knapper.yaml"))
+        .args([
+            "tasks",
+            "--query",
+            gap["query"].as_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let result: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let descriptions: Vec<_> = result["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|g| g["tasks"].as_array().unwrap())
+        .map(|t| t["description"].clone())
+        .collect();
+    assert_eq!(serde_json::json!(descriptions), gap["knapper"]);
+    assert_ne!(gap["knapper"], gap["obsidian"]);
+}
