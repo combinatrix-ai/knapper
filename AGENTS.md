@@ -10,7 +10,9 @@ versions, missing or malformed input, known gaps, and verification.
 Distinguish native knapper adapters from the embedded Dataview adapter. Passing
 upstream parser/expression tests does not establish Obsidian metadata parity.
 Use synthetic committed fixtures and record actual-Obsidian comparisons with
-explicit app/plugin versions. Keep private Vault/account data out of this repo.
+explicit app/plugin versions. Use the isolated App + official CLI differential
+workflow in `spec.md` for metadata-dependent checks; keep recorded-reference
+CI replay distinct from a live desktop run. Keep private Vault/account data out of this repo.
 Do not execute arbitrary installed plugins to implement data compatibility.
 
 Build and verification requirements are in `.github/workflows/ci.yml`.

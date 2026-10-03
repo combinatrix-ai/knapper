@@ -1,0 +1,150 @@
+{
+  "verifiedAt": "2026-10-03",
+  "knapperDataviewVersion": "0.5.70",
+  "states": [
+    {
+      "appVersion": "1.13.7 (installer 1.13.7)",
+      "dataviewVersion": "0.5.68",
+      "transport": "official-obsidian-cli",
+      "lifecycle": "enabled",
+      "comparisons": [
+        {
+          "query": "TABLE WITHOUT ID file.path, file.starred WHERE file.name != \"README\" AND file.folder != \"Excluded\" SORT file.path",
+          "obsidian": {
+            "type": "table",
+            "headers": [
+              "file.path",
+              "file.starred"
+            ],
+            "values": [
+              [
+                "A.md",
+                true
+              ],
+              [
+                "B.md",
+                true
+              ],
+              [
+                "C.md",
+                false
+              ]
+            ]
+          },
+          "knapper": {
+            "type": "table",
+            "headers": [
+              "file.path",
+              "file.starred"
+            ],
+            "values": [
+              [
+                "A.md",
+                true
+              ],
+              [
+                "B.md",
+                true
+              ],
+              [
+                "C.md",
+                false
+              ]
+            ]
+          },
+          "equal": true
+        },
+        {
+          "query": "LIST WITHOUT ID file.path WHERE file.starred AND file.folder != \"Excluded\" SORT file.path",
+          "obsidian": {
+            "type": "list",
+            "headers": null,
+            "values": [
+              "A.md",
+              "B.md"
+            ]
+          },
+          "knapper": {
+            "type": "list",
+            "headers": null,
+            "values": [
+              "A.md",
+              "B.md"
+            ]
+          },
+          "equal": true
+        }
+      ],
+      "bookmarksCliOutput": "[\n  {\n    \"value\": \"A.md#Section\"\n  },\n  {\n    \"value\": \"[group] Outer\"\n  },\n  {\n    \"value\": \"[group] Inner\"\n  },\n  {\n    \"value\": \"B.md#^example\"\n  },\n  {\n    \"value\": \"A.md\"\n  },\n  {\n    \"value\": \"Excluded/Hidden.md\"\n  },\n  {\n    \"value\": \"Excluded\"\n  },\n  {\n    \"value\": \"C\"\n  },\n  {\n    \"value\": \"[graph] \"\n  },\n  {\n    \"value\": \"https://example.com\"\n  }\n]"
+    },
+    {
+      "appVersion": "1.13.7 (installer 1.13.7)",
+      "dataviewVersion": "0.5.68",
+      "transport": "official-obsidian-cli",
+      "lifecycle": "cold-start-disabled",
+      "bookmarksCliOutput": "Error: Command \"bookmarks\" not found. It may require a plugin to be enabled.",
+      "comparisons": [
+        {
+          "query": "TABLE WITHOUT ID file.path, file.starred WHERE file.name != \"README\" AND file.folder != \"Excluded\" SORT file.path",
+          "obsidian": {
+            "type": "table",
+            "headers": [
+              "file.path",
+              "file.starred"
+            ],
+            "values": [
+              [
+                "A.md",
+                false
+              ],
+              [
+                "B.md",
+                false
+              ],
+              [
+                "C.md",
+                false
+              ]
+            ]
+          },
+          "knapper": {
+            "type": "table",
+            "headers": [
+              "file.path",
+              "file.starred"
+            ],
+            "values": [
+              [
+                "A.md",
+                false
+              ],
+              [
+                "B.md",
+                false
+              ],
+              [
+                "C.md",
+                false
+              ]
+            ]
+          },
+          "equal": true
+        },
+        {
+          "query": "LIST WITHOUT ID file.path WHERE file.starred AND file.folder != \"Excluded\" SORT file.path",
+          "obsidian": {
+            "type": "list",
+            "headers": null,
+            "values": []
+          },
+          "knapper": {
+            "type": "list",
+            "headers": null,
+            "values": []
+          },
+          "equal": true
+        }
+      ]
+    }
+  ]
+}

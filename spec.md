@@ -160,6 +160,44 @@ ordered typed values with the same origin/timezone. Fixtures committed here must
 be synthetic. Include absence, malformed input and ambiguous-resolution cases
 when adding an adapter.
 
+## Verification with Obsidian App and official CLI
+
+The desktop App supplies the authoritative loaded metadata and plugin state;
+the [official Obsidian CLI](https://obsidian.md/help/cli) drives that running
+App and retrieves results. The CLI is not an independent headless parser.
+Use an isolated profile and a disposable synthetic vault, explicitly target the
+vault, and enable CLI only for that profile. The bundled `obsidian-cli` binary
+can be invoked directly without registering a system PATH symlink.
+
+For each metadata-dependent feature:
+
+1. Pin and record installer/app and community-plugin versions. The current
+   bookmark check still compares Dataview 0.5.68 with embedded 0.5.70.
+2. Load identical fixture files/settings in App and knapper; wait for metadata
+   and plugin indexes. Verify the CLI-connected vault path, not only its name.
+3. Use native CLI commands (`bookmarks`, `links`, `backlinks`, `properties`,
+   `tags`, `tasks`, `outline`) for applicable core observations. Use CLI `eval`
+   to query Dataview's actual API and serialize typed results where necessary.
+4. Compare supported fields and ordered typed values, with matching scope,
+   origin, timezone and plugin state. Raw CLI shape is not the knapper contract.
+   Record intentional differences rather than normalizing away semantics.
+5. Include enabled, missing/invalid input where the App accepts it, warm changes
+   and cold restart. Never infer cold behavior from a live plugin toggle.
+6. Inspect App views for rendering/lifecycle claims; CLI query equality alone
+   does not establish rendering parity. Store synthetic expected results for CI;
+   ordinary CI replay does not mean the desktop App ran in CI.
+
+On 2026-10-03 Obsidian App/CLI 1.13.7 and Dataview 0.5.68 passed four bookmark
+comparisons (TABLE/LIST, enabled and disabled after a full App restart).
+The native `bookmarks format=json` inventory was captured too; while disabled,
+that command returns a text diagnostic instead of JSON. Evidence is in
+[cli-reference-results.json](tests/fixtures/obsidian-bookmarks/cli-reference-results.json).
+The reproducible runner is [scripts/verify-obsidian-cli.py](scripts/verify-obsidian-cli.py);
+setup and invocation are in the [fixture README](tests/fixtures/obsidian-bookmarks/README.md).
+Other registry entries remain at their stated verification level until tested
+through this workflow; native CLI observations for links/properties/tags/tasks
+are next coverage, not claims of already verified parity.
+
 ## Core Bookmarks contract
 
 Input is `.obsidian/bookmarks.json`. `--obsidian-config-dir` selects an alternate
