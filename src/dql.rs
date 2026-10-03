@@ -183,8 +183,11 @@ fn snapshot(
     origin: Option<&str>,
     query: &str,
     timezone: &str,
+    obsidian_config_dir: &str,
 ) -> Result<Value> {
     use std::time::UNIX_EPOCH;
+    let bookmarked_files =
+        crate::obsidian::bookmarked_files(&config.vault_path, obsidian_config_dir)?;
     let mut files = Vec::new();
     let note_paths: std::collections::HashSet<_> =
         crate::vault::all_notes(config).into_iter().collect();
@@ -231,7 +234,9 @@ fn snapshot(
     {
         return Err(anyhow!("Origin must be an indexed Markdown note: {origin}"));
     }
-    Ok(json!({"files":files,"origin":origin,"query":query,"timezone":timezone}))
+    Ok(
+        json!({"files":files,"origin":origin,"query":query,"timezone":timezone,"bookmarkedFiles":bookmarked_files}),
+    )
 }
 
 fn render(value: &Value) -> String {
@@ -270,20 +275,29 @@ fn render(value: &Value) -> String {
     }
 }
 
-pub fn run(
-    config: &crate::vault::Config,
-    query: &str,
-    origin: Option<&str>,
-    timezone: Option<&str>,
-    memory_limit_mib: u32,
-    timeout_seconds: u64,
-    format: &str,
-) -> Result<()> {
+pub struct Options<'a> {
+    pub origin: Option<&'a str>,
+    pub timezone: Option<&'a str>,
+    pub memory_limit_mib: u32,
+    pub timeout_seconds: u64,
+    pub obsidian_config_dir: &'a str,
+    pub format: &'a str,
+}
+
+pub fn run(config: &crate::vault::Config, query: &str, options: Options<'_>) -> Result<()> {
+    let Options {
+        origin,
+        timezone,
+        memory_limit_mib,
+        timeout_seconds,
+        obsidian_config_dir,
+        format,
+    } = options;
     let timezone = timezone
         .map(str::to_string)
         .unwrap_or_else(|| iana_time_zone::get_timezone().unwrap_or_else(|_| "UTC".into()));
     let output = evaluate(
-        &snapshot(config, origin, query, &timezone)?,
+        &snapshot(config, origin, query, &timezone, obsidian_config_dir)?,
         memory_limit_mib,
         timeout_seconds,
     )?;
@@ -391,8 +405,14 @@ mod tests {
             "TABLE dateformat(date(\"2026-07-01T12:00:00[America/Toronto]\"), \"ZZ\"), dateformat(date(\"2026-01-01T12:00:00[America/Toronto]\"), \"ZZ\") FROM \"Diary\"",
         ];
         for query in queries {
-            let input =
-                snapshot(&config, Some("Diary/2026-10-02.md"), query, "Asia/Tokyo").unwrap();
+            let input = snapshot(
+                &config,
+                Some("Diary/2026-10-02.md"),
+                query,
+                "Asia/Tokyo",
+                ".obsidian",
+            )
+            .unwrap();
             let embedded = evaluate(&input, 256, 30).unwrap();
             let mut child =
                 Command::new(std::env::var("KNAPPER_DQL_NODE").unwrap_or_else(|_| "node".into()))

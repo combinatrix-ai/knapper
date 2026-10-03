@@ -89,6 +89,130 @@ fn japanese_paragraph_and_list_endings_preserve_metadata() {
     );
     assert_eq!(r["values"], json!([[9, ["日本語の項目。"]]]));
 }
+
+#[test]
+fn native_bookmarks_follow_dataview_file_and_group_semantics() {
+    let v = fixture();
+    fs::create_dir(v.path().join(".obsidian")).unwrap();
+    let bookmarks = json!({"items":[
+        {"type":"file","path":"Diary/2026-10-02.md","subpath":"#Mail"},
+        {"type":"group","items":[{"type":"group","items":[{"type":"file","path":"Diary/2026-10-03.md","subpath":"#^block"}]}]},
+        {"type":"file","path":"Diary/2026-10-02.md"},
+        {"type":"file","path":"Excluded/2026-10-04.md"},
+        {"type":"folder","path":"Diary"},
+        {"type":"search","query":"Other"},
+        {"type":"graph","path":"Other.md"},
+        {"type":"url","url":"https://example.com"}
+    ]});
+    fs::write(
+        v.path().join(".obsidian/bookmarks.json"),
+        bookmarks.to_string(),
+    )
+    .unwrap();
+    let r = query(
+        &v,
+        "TABLE WITHOUT ID file.path, file.starred SORT file.path",
+        &[],
+    );
+    assert_eq!(
+        r["values"],
+        json!([
+            ["Diary/2026-10-02.md", true],
+            ["Diary/2026-10-03.md", true],
+            ["Other.md", false]
+        ])
+    );
+    assert_eq!(
+        query(
+            &v,
+            "LIST WITHOUT ID file.path WHERE file.starred SORT file.path",
+            &[]
+        )["values"],
+        json!(["Diary/2026-10-02.md", "Diary/2026-10-03.md"])
+    );
+}
+
+#[test]
+fn bookmark_plugin_state_is_respected_in_both_saved_formats() {
+    let v = fixture();
+    fs::create_dir(v.path().join(".obsidian")).unwrap();
+    let count = "TABLE WITHOUT ID file.path WHERE file.starred";
+    for state in [json!({"bookmarks":false}), json!([])] {
+        fs::write(
+            v.path().join(".obsidian/core-plugins.json"),
+            state.to_string(),
+        )
+        .unwrap();
+        fs::write(
+            v.path().join(".obsidian/bookmarks.json"),
+            "malformed but disabled",
+        )
+        .unwrap();
+        assert_eq!(query(&v, count, &[])["values"], json!([]));
+    }
+    for state in [json!({"bookmarks":true}), json!(["bookmarks"]), json!({})] {
+        fs::write(
+            v.path().join(".obsidian/core-plugins.json"),
+            state.to_string(),
+        )
+        .unwrap();
+        fs::write(
+            v.path().join(".obsidian/bookmarks.json"),
+            json!({"items":[{"type":"file","path":"Other.md"}]}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(query(&v, count, &[])["values"], json!([["Other.md"]]));
+    }
+}
+
+#[test]
+fn bookmark_missing_malformed_and_custom_settings_are_explicit() {
+    let v = fixture();
+    let count = "LIST WITHOUT ID file.path WHERE file.starred";
+    assert_eq!(query(&v, count, &[])["values"], json!([]));
+    fs::create_dir(v.path().join(".settings")).unwrap();
+    let path = v.path().join(".settings/bookmarks.json");
+    fs::write(
+        &path,
+        json!({"items":[{"type":"file","path":"Other.md"}]}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(query(&v, count, &[])["values"], json!([]));
+    assert_eq!(
+        query(&v, count, &["--obsidian-config-dir", ".settings"])["values"],
+        json!(["Other.md"])
+    );
+    for invalid in [
+        "{",
+        r#"{"items":null}"#,
+        r#"{"items":[{"type":"file"}]}"#,
+        r#"{"items":[{"type":"group","items":{}}]}"#,
+    ] {
+        fs::write(&path, invalid).unwrap();
+        let output = run(&v, count, &["--obsidian-config-dir", ".settings"]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("bookmarks.json"));
+    }
+    let output = run(&v, count, &["--obsidian-config-dir", "../outside"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("vault-relative"));
+}
+
+#[cfg(unix)]
+#[test]
+fn bookmark_settings_symlinks_cannot_escape_the_vault() {
+    let v = fixture();
+    let outside = TempDir::new().unwrap();
+    fs::write(outside.path().join("bookmarks.json"), "{}").unwrap();
+    std::os::unix::fs::symlink(outside.path(), v.path().join(".outside")).unwrap();
+    let output = run(
+        &v,
+        "LIST WHERE file.starred",
+        &["--obsidian-config-dir", ".outside"],
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("inside the vault"));
+}
 #[test]
 fn flatten_typed_inline_links_and_nested_tags() {
     let v = fixture();

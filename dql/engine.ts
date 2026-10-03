@@ -41,6 +41,7 @@ function makeIndex(input: any): any {
   }
   const tags = new ValueCaseInsensitiveIndexMap();
   const links = new IndexMap();
+  const bookmarkedFiles = new Set<string>(input.bookmarkedFiles ?? []);
   const resolvedLinks: Record<string, Record<string, number>> = {};
   const resolve = (raw: string, origin: string) => {
     let p = raw.split('#')[0];
@@ -68,7 +69,7 @@ function makeIndex(input: any): any {
     pages, tags, links,
     metadataCache: {getFirstLinkpathDest: resolve, resolvedLinks},
     vault: {getMarkdownFiles: () => [...pages.keys()].map(path => ({path}))},
-    starred: {starred: () => false},
+    starred: {starred: (path: string) => bookmarkedFiles.has(path)},
     prefix: {
       nodeExists: (p:string) => folders.has(p),
       pathExists: (p:string) => allPaths.has(p),

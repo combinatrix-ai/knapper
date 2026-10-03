@@ -1,0 +1,2 @@
+# Section
+Synthetic note A.

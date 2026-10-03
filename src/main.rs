@@ -18,6 +18,7 @@ mod lint_selection;
 mod move_tree;
 mod note;
 mod notes_cmd;
+mod obsidian;
 mod org;
 mod parser;
 mod providers;
@@ -412,6 +413,9 @@ enum Command {
         /// Engine execution deadline in seconds, including index construction.
         #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..=600))]
         timeout_seconds: u64,
+        /// Obsidian settings directory, relative to the vault (read-only).
+        #[arg(long, default_value = ".obsidian")]
+        obsidian_config_dir: String,
         #[arg(short = 'f', long, default_value = "text", value_parser = ["text", "json"])]
         format: String,
         /// Print bundled engine licenses without reading a vault.
@@ -804,16 +808,20 @@ fn run() -> Result<()> {
             timezone,
             memory_limit_mib,
             timeout_seconds,
+            obsidian_config_dir,
             format,
             ..
         } => dql::run(
             &config,
             query.as_deref().unwrap(),
-            origin.as_deref(),
-            timezone.as_deref(),
-            memory_limit_mib,
-            timeout_seconds,
-            &format,
+            dql::Options {
+                origin: origin.as_deref(),
+                timezone: timezone.as_deref(),
+                memory_limit_mib,
+                timeout_seconds,
+                obsidian_config_dir: &obsidian_config_dir,
+                format: &format,
+            },
         ),
         Command::Query {
             r#where,

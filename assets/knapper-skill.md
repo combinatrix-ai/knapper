@@ -102,6 +102,7 @@ knapper dql 'TABLE messages FROM "Diary" SORT file.day' --format json
 knapper dql 'TABLE sum(rows.messages) FROM "Diary" GROUP BY status' --format json
 knapper dql 'TASK FROM #work WHERE !completed' --format json
 knapper dql 'TABLE this.messages FROM "Diary"' --origin Diary/2026-10-03.md --format json
+knapper dql 'LIST WHERE file.starred' --format json
 knapper dql --licenses
 ```
 
@@ -112,10 +113,14 @@ JSON preserves dates/durations/links with type tags and includes row-error
 
 Use `query` for knapper's structural fields; use `dql` for Dataview expressions.
 This is headless DQL, not full Obsidian/DataviewJS compatibility. The snapshot
-indexes only Markdown/CSV in knapper's configured scope. Bookmarks are not
-loaded (`file.starred=false`); English/Japanese locale data is bundled, and
-Obsidian-specific metadata/link resolution edge cases remain. Queries have no
-host filesystem/network APIs. Do not claim embedded JS or checkbox mutation.
+indexes Markdown/CSV in knapper's configured scope. Native `bookmarks.json` and
+saved Core Bookmarks state supply `file.starred`; `--obsidian-config-dir` selects
+a Vault-relative settings directory. This follows cold-start state, not retained
+items after live plugin disable. English/Japanese locale data is bundled, and
+Obsidian-specific metadata/link resolution edge cases remain. Large vaults can
+use `--memory-limit-mib` and `--timeout-seconds`. The embedded JS has no host
+filesystem/network APIs. Do not claim user-supplied JS or checkbox mutation.
+The repo's `spec.md` is the canonical Obsidian/plugin capability contract.
 
 ## Reading one note
 

@@ -15,6 +15,8 @@ knapper dql 'TASK FROM #work WHERE !completed'
 knapper dql 'CALENDAR file.day FROM "Diary"'
 knapper dql 'TABLE this.messages FROM "Diary"' --origin Diary/2026-10-03.md
 knapper dql 'TABLE messages FROM "Diary"' --memory-limit-mib 1024 --timeout-seconds 120
+knapper dql 'LIST WHERE file.starred'
+knapper dql 'LIST WHERE file.starred' --obsidian-config-dir .custom-obsidian
 knapper dql 'TABLE count FROM csv("counts.csv")' --origin Diary/2026-10-03.md
 knapper dql --licenses
 ```
@@ -44,7 +46,10 @@ The canonical feature contracts and verification status are in [spec.md](../spec
 - CommonMark sections/list nesting and knapper's link/tag scanner provide the
   Obsidian-shaped metadata. Obsidian-specific syntax (such as callout/list
   cache edge cases), ambiguous/case-insensitive link lookup and bookmark state
-  are not fully matched. `file.starred` currently returns false.
+  are not fully matched. `file.starred` reads native `bookmarks.json` and saved
+  Core Bookmarks plugin state. It models a cold snapshot; live-disable retained
+  items, legacy migration state and Markdown bookmark lists are not reproduced.
+  See [spec.md](../spec.md#core-bookmarks-contract) for input/error/state rules.
 - Formatting uses bundled English and Japanese locale data, with all FormatJS
   timezone data. It does not reproduce arbitrary Obsidian UI locales. Timezone
   history/future coverage follows that pinned data, not the host ICU database.

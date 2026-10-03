@@ -156,6 +156,7 @@ key. These write commands have no dry-run flag.
 | [`knapper init`](#knapper-init) | Write `knapper.yaml`, and the daily template it names |
 | [`knapper config check`](#knapper-config) | Validate the config without scanning the vault |
 | [`knapper config schema`](#knapper-config) | Print the JSON Schema for YAML-aware editors |
+| [`knapper dql`](#knapper-dql) | Run pinned Dataview DQL; see [the DQL guide](../dql/README.md) and [Obsidian spec](../spec.md) |
 | [`knapper query`](#knapper-query) | Filter notes by frontmatter, inline fields and link counts |
 | [`knapper fields`](#knapper-fields) | List what `query` can filter on |
 | [`knapper lint`](#knapper-lint) | Vault health: `broken-links`, `orphans`, `duplicates`, `empty`, `frontmatter`, `headings` |
@@ -1219,7 +1220,7 @@ The following help output is captured from the current source build. When
 changing CLI arguments, refresh the affected entries with the matching
 `--help` command. Global options are repeated so each entry stands alone.
 
-[knapper](#knapper) · [knapper links](#knapper-links) · [knapper backlinks](#knapper-backlinks) · [knapper orphans](#knapper-orphans) · [knapper hubs](#knapper-hubs) · [knapper broken-links](#knapper-broken-links) · [knapper repair-links](#knapper-repair-links) · [knapper init](#knapper-init) · [knapper config](#knapper-config) · [knapper config check](#knapper-config-check) · [knapper config schema](#knapper-config-schema) · [knapper skill](#knapper-skill) · [knapper self-update](#knapper-self-update) · [knapper context](#knapper-context) · [knapper frontmatter](#knapper-frontmatter) · [knapper frontmatter get](#knapper-frontmatter-get) · [knapper frontmatter set](#knapper-frontmatter-set) · [knapper frontmatter delete](#knapper-frontmatter-delete) · [knapper lint](#knapper-lint) · [knapper daily](#knapper-daily) · [knapper rename](#knapper-rename) · [knapper demote](#knapper-demote) · [knapper query](#knapper-query) · [knapper fields](#knapper-fields) · [knapper move](#knapper-move) · [knapper tasks](#knapper-tasks) · [knapper tasks new](#knapper-tasks-new) · [knapper tasks done](#knapper-tasks-done) · [knapper tasks wip](#knapper-tasks-wip) · [knapper tasks cancel](#knapper-tasks-cancel) · [knapper tasks set](#knapper-tasks-set) · [knapper tags](#knapper-tags) · [knapper refs](#knapper-refs) · [knapper resolve](#knapper-resolve) · [knapper provider](#knapper-provider) · [knapper provider list](#knapper-provider-list) · [knapper provider set](#knapper-provider-set) · [knapper provider remove](#knapper-provider-remove)
+[knapper](#knapper) · [knapper links](#knapper-links) · [knapper backlinks](#knapper-backlinks) · [knapper orphans](#knapper-orphans) · [knapper hubs](#knapper-hubs) · [knapper broken-links](#knapper-broken-links) · [knapper repair-links](#knapper-repair-links) · [knapper init](#knapper-init) · [knapper config](#knapper-config) · [knapper config check](#knapper-config-check) · [knapper config schema](#knapper-config-schema) · [knapper skill](#knapper-skill) · [knapper self-update](#knapper-self-update) · [knapper context](#knapper-context) · [knapper frontmatter](#knapper-frontmatter) · [knapper frontmatter get](#knapper-frontmatter-get) · [knapper frontmatter set](#knapper-frontmatter-set) · [knapper frontmatter delete](#knapper-frontmatter-delete) · [knapper lint](#knapper-lint) · [knapper daily](#knapper-daily) · [knapper rename](#knapper-rename) · [knapper demote](#knapper-demote) · [knapper dql](#knapper-dql) · [knapper query](#knapper-query) · [knapper fields](#knapper-fields) · [knapper move](#knapper-move) · [knapper tasks](#knapper-tasks) · [knapper tasks new](#knapper-tasks-new) · [knapper tasks done](#knapper-tasks-done) · [knapper tasks wip](#knapper-tasks-wip) · [knapper tasks cancel](#knapper-tasks-cancel) · [knapper tasks set](#knapper-tasks-set) · [knapper tags](#knapper-tags) · [knapper refs](#knapper-refs) · [knapper resolve](#knapper-resolve) · [knapper provider](#knapper-provider) · [knapper provider list](#knapper-provider-list) · [knapper provider set](#knapper-provider-set) · [knapper provider remove](#knapper-provider-remove)
 
 ### knapper
 
@@ -1248,6 +1249,7 @@ Commands:
   daily         Create or get daily note
   rename        Rename a note and update all links to it
   demote        Rewrite a hard [[target]] into a soft #tag
+  dql           Execute a Dataview DQL query using the embedded engine
   query         Filter notes by frontmatter, inline fields, and link counts
   fields        List what query can filter on, computed and declared
   move          Move a note or a directory to a different folder and update all links
@@ -1671,6 +1673,42 @@ Options:
 
   -h, --help
           Print help (see a summary with '-h')
+```
+
+### knapper dql
+
+See [the DQL guide](../dql/README.md) for examples and build instructions, and
+[spec.md](../spec.md) for exact Obsidian/plugin compatibility boundaries.
+
+```text
+Execute a Dataview DQL query using the embedded engine
+
+Usage: knapper dql [OPTIONS] [QUERY]
+
+Arguments:
+  [QUERY]
+
+Options:
+  -c, --config <CONFIG>
+          Path to config file
+      --origin <ORIGIN>
+          Current note for `this` and relative links/CSV paths
+      --timezone <TIMEZONE>
+          IANA timezone (defaults to the host timezone)
+  -v, --vault <VAULT>
+          Path to vault (overrides config)
+      --memory-limit-mib <MEMORY_LIMIT_MIB>
+          JavaScript heap limit in MiB (increase for large vaults) [default: 256]
+      --timeout-seconds <TIMEOUT_SECONDS>
+          Engine execution deadline in seconds, including index construction [default: 30]
+      --obsidian-config-dir <OBSIDIAN_CONFIG_DIR>
+          Obsidian settings directory, relative to the vault (read-only) [default: .obsidian]
+  -f, --format <FORMAT>
+          [default: text] [possible values: text, json]
+      --licenses
+          Print bundled engine licenses without reading a vault
+  -h, --help
+          Print help
 ```
 
 ### knapper query

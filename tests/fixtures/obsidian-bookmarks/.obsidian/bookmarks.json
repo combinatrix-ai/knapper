@@ -1,0 +1,16 @@
+{
+  "items": [
+    {"type": "file", "path": "A.md", "subpath": "#Section", "title": "Heading", "ctime": 1},
+    {"type": "group", "title": "Outer", "items": [
+      {"type": "group", "title": "Inner", "items": [
+        {"type": "file", "path": "B.md", "subpath": "#^example", "title": "Block", "ctime": 2}
+      ]}
+    ]},
+    {"type": "file", "path": "A.md", "title": "Duplicate", "ctime": 3},
+    {"type": "file", "path": "Excluded/Hidden.md", "ctime": 4},
+    {"type": "folder", "path": "Excluded", "ctime": 5},
+    {"type": "search", "query": "C", "ctime": 6},
+    {"type": "graph", "options": {}, "ctime": 7},
+    {"type": "url", "url": "https://example.com", "ctime": 8}
+  ]
+}

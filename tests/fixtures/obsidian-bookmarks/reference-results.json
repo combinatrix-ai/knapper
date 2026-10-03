@@ -1,0 +1,179 @@
+{
+  "appVersion": "1.13.7",
+  "dataviewVersion": "0.5.68",
+  "states": [
+    {
+      "enabled": true,
+      "itemsRemain": true,
+      "rows": [
+        {
+          "query": "TABLE WITHOUT ID file.path, file.starred WHERE file.name != \"README\" AND file.folder != \"Excluded\" SORT file.path",
+          "type": "table",
+          "headers": [
+            "file.path",
+            "file.starred"
+          ],
+          "values": [
+            [
+              "A.md",
+              true
+            ],
+            [
+              "B.md",
+              true
+            ],
+            [
+              "C.md",
+              false
+            ]
+          ],
+          "knapper": {
+            "type": "table",
+            "headers": [
+              "file.path",
+              "file.starred"
+            ],
+            "values": [
+              [
+                "A.md",
+                true
+              ],
+              [
+                "B.md",
+                true
+              ],
+              [
+                "C.md",
+                false
+              ]
+            ]
+          },
+          "equal": true
+        },
+        {
+          "query": "LIST WITHOUT ID file.path WHERE file.starred AND file.folder != \"Excluded\" SORT file.path",
+          "type": "list",
+          "headers": null,
+          "values": [
+            "A.md",
+            "B.md"
+          ],
+          "knapper": {
+            "type": "list",
+            "headers": null,
+            "values": [
+              "A.md",
+              "B.md"
+            ]
+          },
+          "equal": true
+        }
+      ],
+      "lifecycle": "enabled"
+    },
+    {
+      "enabled": false,
+      "itemsRemain": true,
+      "rows": [
+        {
+          "query": "TABLE WITHOUT ID file.path, file.starred WHERE file.name != \"README\" AND file.folder != \"Excluded\" SORT file.path",
+          "type": "table",
+          "headers": [
+            "file.path",
+            "file.starred"
+          ],
+          "values": [
+            [
+              "A.md",
+              true
+            ],
+            [
+              "B.md",
+              true
+            ],
+            [
+              "C.md",
+              false
+            ]
+          ]
+        },
+        {
+          "query": "LIST WITHOUT ID file.path WHERE file.starred AND file.folder != \"Excluded\" SORT file.path",
+          "type": "list",
+          "headers": null,
+          "values": [
+            "A.md",
+            "B.md"
+          ]
+        }
+      ],
+      "lifecycle": "warm-disable-after-refresh"
+    },
+    {
+      "enabled": false,
+      "itemsRemain": true,
+      "rows": [
+        {
+          "query": "TABLE WITHOUT ID file.path, file.starred WHERE file.name != \"README\" AND file.folder != \"Excluded\" SORT file.path",
+          "type": "table",
+          "headers": [
+            "file.path",
+            "file.starred"
+          ],
+          "values": [
+            [
+              "A.md",
+              false
+            ],
+            [
+              "B.md",
+              false
+            ],
+            [
+              "C.md",
+              false
+            ]
+          ],
+          "knapper": {
+            "type": "table",
+            "headers": [
+              "file.path",
+              "file.starred"
+            ],
+            "values": [
+              [
+                "A.md",
+                false
+              ],
+              [
+                "B.md",
+                false
+              ],
+              [
+                "C.md",
+                false
+              ]
+            ]
+          },
+          "equal": true
+        },
+        {
+          "query": "LIST WITHOUT ID file.path WHERE file.starred AND file.folder != \"Excluded\" SORT file.path",
+          "type": "list",
+          "headers": null,
+          "values": [],
+          "knapper": {
+            "type": "list",
+            "headers": null,
+            "values": []
+          },
+          "equal": true
+        }
+      ],
+      "lifecycle": "cold-start-disabled"
+    }
+  ],
+  "knapperDataviewVersion": "0.5.70",
+  "verifiedAt": "2026-10-03",
+  "warmDisableDifference": "Obsidian retains loaded bookmark items after live disable; knapper follows saved state as at cold start."
+}

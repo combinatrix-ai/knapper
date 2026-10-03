@@ -29,8 +29,9 @@ an upstream test count alone is not evidence of complete compatibility.
 - Note files remain the source of truth. Queries read a fresh snapshot and do not
   require a running Obsidian instance, persistent index, Node, or JS sidecar.
 - `knapper.yaml` determines note scope, exclusions, daily-note configuration,
-  templates, and knapper task statuses. Current commands do not automatically
-  import Obsidian or community-plugin settings from `.obsidian`.
+  templates, and knapper task statuses. DQL imports the explicitly scoped
+  Core Bookmarks data described below.
+  Other Obsidian/community-plugin settings are not imported automatically.
 - Commands may have distinct adapters. Native `query`/`tasks`/link commands and
   `dql` must not be described as having identical parsing or resolution behavior
   unless that specific behavior has been compared.
@@ -47,7 +48,7 @@ an upstream test count alone is not evidence of complete compatibility.
 | CORE-PROPERTIES | YAML properties and note aliases | Native frontmatter/query/graph commands | Implemented subset | Native parser/link tests and Obsidian fixture |
 | CORE-TAGS | Body/YAML tags, nested and Unicode tags | Native tag/query commands | Implemented subset | Obsidian fixture and parser tests |
 | CORE-DAILY | Daily notes and Core Templates | `daily` | Implemented subset | `tests/daily.rs` |
-| CORE-BOOKMARKS | Core Bookmarks plugin | DQL `file.starred` | Unsupported; adapter planned | See bookmark contract below |
+| CORE-BOOKMARKS | Core Bookmarks plugin | DQL `file.starred` | Implemented file-membership subset; cold-snapshot contract | Four adapter tests and actual-Obsidian enabled/disabled-start comparison |
 | DV-FIELDS | Dataview inline fields | Native context/query; upstream importer in DQL | Implemented subsets with different adapters | Parser tests, `tests/dql.rs` |
 | DV-DQL | Dataview query language and expression functions | `dql` | Implemented pinned engine | 395 upstream tests in Node and QuickJS |
 | DV-INDEX | Obsidian metadata supplied to Dataview | `dql` | Partial | `tests/dql.rs`; actual Obsidian comparison described below |
@@ -56,7 +57,6 @@ an upstream test count alone is not evidence of complete compatibility.
 | TASKS-DATA | Tasks checkbox/date/priority/recurrence conventions | Native `tasks` commands | Implemented subset | Obsidian fixture and task tests |
 | TASKS-QUERY | Tasks query-block language, plugin settings and recurrence execution | None | Unsupported | Reading recurrence text is not executing recurrence |
 | TEMPLATER-DATE | Templater date/title helpers | `daily` template expansion | Partial | Template and daily-note tests |
-| MARKDOWN-BOOKMARKS | A user-maintained `bookmark.md` link list | Proposed bookmark adapter | Planned extension; source choice pending | Not Obsidian's native bookmark format |
 
 ## Core Markdown and metadata
 
@@ -115,7 +115,7 @@ The command accepts DQL directly; it does not automatically find/evaluate every
   dereferenced fields and incoming/outgoing links.
 - `file.ctime`/`mtime`/`size` come from the filesystem. Where creation time is
   unavailable, modification time is used. Copy/sync can change these values.
-- `file.starred` is currently always false. Bookmark inputs are not read yet.
+- `file.starred` follows the saved native bookmark data and plugin state below.
 - CSV sources use scoped Vault CSV files. URL/external-file fetching is unsupported.
 - `--origin` supplies the current page for `this` and relative sources. An absent
   origin does not automatically select the note open in Obsidian.
@@ -143,8 +143,8 @@ is still an improvement target.
 
 1. All 18 upstream suites / 395 unchanged test cases pass under Node/Jest and the
    embedded QuickJS runtime. They primarily establish parser/expression behavior.
-2. Sixteen synthetic end-to-end tests cover the metadata adapter, sources,
-   dates/DST, task structure, grouping, errors, Japanese text and standalone use.
+2. Twenty synthetic end-to-end tests cover the metadata adapter, sources,
+   dates/DST, task structure, grouping, errors, Japanese text, native bookmarks and standalone use.
 3. Ten full DQL queries are compared with a Node-native-Intl reference. Both
    runtimes use the same adapter, so this does not test Obsidian metadata parity.
 4. On 2026-10-03, actual Obsidian 1.13.7 + existing Dataview 0.5.68 was compared
@@ -160,45 +160,57 @@ ordered typed values with the same origin/timezone. Fixtures committed here must
 be synthetic. Include absence, malformed input and ambiguous-resolution cases
 when adding an adapter.
 
-## Bookmark contracts to implement
+## Core Bookmarks contract
 
-These are planned contracts, not current functionality. The Markdown-source
-choice and its configuration still need to be settled.
+Input is `.obsidian/bookmarks.json`. `--obsidian-config-dir` selects an alternate
+Vault-relative configuration directory; absolute paths, parent traversal and
+settings symlinks escaping the Vault are rejected. The adapter reads only this
+file and the matching `core-plugins.json`, without indexing config files as pages
+or executing the plugin. Markdown bookmark lists are not an input.
 
-### Native Core Bookmarks
-
-The primary compatibility target is the current Core Bookmarks plugin and its
-`.obsidian/bookmarks.json` data, not an arbitrary Markdown file with a similar
-name. [Obsidian's bookmark documentation](https://obsidian.md/help/plugins/bookmarks)
+[Obsidian's bookmark documentation](https://obsidian.md/help/plugins/bookmarks)
 explains item types and groups. The pinned Dataview `StarredCache.fetch` in
-`vendor/dataview/src/data-index/index.ts` determines `file.starred` semantics:
+`vendor/dataview/src/data-index/index.ts` determines file-membership semantics:
 
-- Recursively visit nested `group.items`.
-- Only `type: "file"` entries contribute their file path.
-- A heading/block bookmark represented by a file entry marks that file; a
-  subpath does not create a different page's starred state.
-- Folder, search, graph and URL entries do not star descendant or referenced
-  notes implicitly. Duplicate file entries do not change the boolean.
-- Missing/disabled bookmark data yields an empty set. Invalid enabled input
-  must produce a clear error/diagnostic rather than silently report no bookmarks.
-- Read the designated config file without indexing all of `.obsidian` as pages.
-  Configuration-directory selection and plugin enablement must be specified and
-  tested before claiming parity with a running Obsidian app.
+- Recursively visit nested `group.items`; only `type: "file"` entries contribute
+  their exact stored path. File paths are not reinterpreted as aliases.
+- Heading/block bookmarks represented by file entries star that file. Duplicate
+  entries do not change the boolean.
+- Folder, search, graph and URL entries do not star other files implicitly.
 - Excluded files do not become DQL pages merely because they are bookmarked.
-- Do not write/reorder bookmarks as a side effect of a query.
+- Queries do not write/reorder bookmarks or change plugin state.
 
-### Optional Markdown bookmark list
+The settings-file root must have an `items` array. Group child arrays and file
+paths are validated; unknown item types are ignored rather than treated as files.
+Enabled malformed input fails with a clear error. A missing bookmark file yields
+an empty set. A disabled plugin yields an empty set without parsing bookmark data.
 
-A `bookmark.md` link list is a proposed portable knapper extension, distinct from
-native Obsidian behavior. Do not treat `Archives/Bookmarks.md`, every note named
-"Bookmarks", or every ordinary link as a current bookmark list automatically.
+Plugin state is read from `core-plugins.json` when bookmarks exist:
 
-If adopted, specify the exact designated Vault-relative file/config key. Use the
-existing prose-link parser/resolver so code/comment links and external URLs are
-excluded; convert resolved file/heading/block links to file-level membership.
-Document unresolved/ambiguous destinations, scope handling and combination with
-native bookmarks. A union of both sources is a candidate, not an implemented or
-settled rule. Test the source choice before describing `file.starred` as compatible.
+| Saved state | Bookmark behavior |
+|---|---|
+| No core-plugin state file | Read existing bookmark data |
+| Boolean state object | Use `bookmarks`; a missing key uses Bookmarks' default-on state |
+| Plugin-ID array | Enabled only when `bookmarks` is listed |
+| Invalid JSON/state shape | Report an error |
+
+This models a **cold snapshot of saved state**, not live plugin lifecycle/cache
+state. In actual Obsidian 1.13.7 + Dataview 0.5.68, disabling an already-loaded
+Bookmarks plugin retained its item list: Dataview continued returning true even
+after its starred cache was explicitly refreshed. Starting with the plugin
+already disabled returned false, matching knapper. This warm-disable difference
+is explicit; compatibility does not include reproducing transient retained data.
+Legacy migration-file state is not imported.
+
+Four end-to-end tests cover nested groups, subpaths, duplicate/irrelevant items,
+exclusions, both plugin-state formats/defaults, missing/malformed data, custom
+config directories and escaped symlinks. The synthetic
+[actual-Obsidian fixture](tests/fixtures/obsidian-bookmarks/README.md) and
+[recorded comparison](tests/fixtures/obsidian-bookmarks/reference-results.json)
+cover table/list queries with Bookmarks enabled and disabled at startup. All four
+results agree. The warm-disable observation is recorded separately as a known
+difference. These comparisons used Dataview 0.5.68 versus the embedded 0.5.70;
+same-version lifecycle comparisons remain a future verification improvement.
 
 ## Adding a plugin or improving a feature
 
@@ -220,10 +232,10 @@ recognizing its installation is not executing it or claiming compatibility.
 
 ## Next compatibility work
 
-- Native bookmark adapter and, if selected, explicit Markdown bookmark sources.
+- Same-version actual-Obsidian bookmark checks and additional saved-state edge cases.
 - Actual-Obsidian fixtures for ambiguous/case/alias link resolution and complex
   task/list/callout metadata.
-- Explicitly scoped configuration import for requested plugins, including
-  custom Obsidian config directories; no automatic arbitrary-plugin execution.
+- Explicitly scoped configuration import for requested plugins, beyond the
+  existing bookmark adapter; no automatic arbitrary-plugin execution.
 - Faster whole-vault snapshots/indexing while preserving query and link behavior.
 - CI automation of same-version actual-Obsidian differential tests where practical.
