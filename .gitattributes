@@ -1,0 +1,7 @@
+# Generated bundles preserve whitespace inside upstream template literals.
+dql/engine.js linguist-generated=true whitespace=-blank-at-eol
+dql/upstream-tests.js linguist-generated=true whitespace=-blank-at-eol
+dql/upstream-index.ts linguist-generated=true
+# License texts retain upstream formatting verbatim.
+dql/*NOTICES.txt whitespace=-blank-at-eol,-blank-at-eof
+vendor/dataview/** linguist-vendored=true

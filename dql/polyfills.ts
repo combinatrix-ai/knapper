@@ -1,0 +1,19 @@
+// QuickJS has no Intl. Bundle the actual FormatJS polyfills, not date shims.
+import '@formatjs/intl-getcanonicallocales/polyfill-force.js';
+import '@formatjs/intl-locale/polyfill-force.js';
+import '@formatjs/intl-pluralrules/polyfill-force.js';
+import '@formatjs/intl-pluralrules/locale-data/en.js';
+import '@formatjs/intl-pluralrules/locale-data/ja.js';
+import '@formatjs/intl-numberformat/polyfill-force.js';
+import '@formatjs/intl-numberformat/locale-data/en.js';
+import '@formatjs/intl-numberformat/locale-data/ja.js';
+import '@formatjs/intl-datetimeformat/polyfill-force.js';
+import '@formatjs/intl-datetimeformat/locale-data/en.js';
+import '@formatjs/intl-datetimeformat/locale-data/ja.js';
+import '@formatjs/intl-datetimeformat/add-all-tz.js';
+import '@formatjs/intl-relativetimeformat/polyfill-force.js';
+import '@formatjs/intl-relativetimeformat/locale-data/en.js';
+import '@formatjs/intl-relativetimeformat/locale-data/ja.js';
+import '@formatjs/intl-listformat/polyfill-force.js';
+import '@formatjs/intl-listformat/locale-data/en.js';
+import '@formatjs/intl-listformat/locale-data/ja.js';
