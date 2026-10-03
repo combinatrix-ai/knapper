@@ -316,6 +316,10 @@ recognizing its installation is not executing it or claiming compatibility.
 
 ## Next compatibility work
 
+The [plugin candidate review](docs/PLUGIN-CANDIDATES.md) records source pins,
+license findings and proposed scopes for Tasks, Linter and QuickAdd. They remain
+unimplemented candidates; inspection is not a compatibility test.
+
 - Same-version actual-Obsidian bookmark checks and additional saved-state edge cases.
 - Preserve native bookmark paths during explicit note/directory refactoring.
 - Actual-Obsidian fixtures for ambiguous/case/alias link resolution and complex
