@@ -73,6 +73,22 @@ fn group_aggregate_uses_upstream_pipeline() {
     let r = query(&v,"TABLE length(rows) AS Days, sum(rows.messages) AS Total, average(rows.messages) AS Mean FROM \"Diary\" GROUP BY status",&[]);
     assert_eq!(r["values"], json!([["open", 2, 1631, 815.5]]));
 }
+
+#[test]
+fn japanese_paragraph_and_list_endings_preserve_metadata() {
+    let v = fixture();
+    fs::write(
+        v.path().join("Diary/2026-10-04.md"),
+        "# 件数履歴\n日本語の行末。\n\nmessages:: 9\n\n- 日本語の項目。\n",
+    )
+    .unwrap();
+    let r = query(
+        &v,
+        "TABLE WITHOUT ID messages, file.lists.text FROM \"Diary/2026-10-04.md\"",
+        &["--memory-limit-mib", "256"],
+    );
+    assert_eq!(r["values"], json!([[9, ["日本語の項目。"]]]));
+}
 #[test]
 fn flatten_typed_inline_links_and_nested_tags() {
     let v = fixture();

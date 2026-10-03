@@ -14,6 +14,7 @@ knapper dql 'TABLE sum(rows.messages) FROM "Diary" GROUP BY status'
 knapper dql 'TASK FROM #work WHERE !completed'
 knapper dql 'CALENDAR file.day FROM "Diary"'
 knapper dql 'TABLE this.messages FROM "Diary"' --origin Diary/2026-10-03.md
+knapper dql 'TABLE messages FROM "Diary"' --memory-limit-mib 1024 --timeout-seconds 120
 knapper dql 'TABLE count FROM csv("counts.csv")' --origin Diary/2026-10-03.md
 knapper dql --licenses
 ```
@@ -49,7 +50,10 @@ This is a **headless DQL integration**, not a claim of full Obsidian compatibili
 - There is no DataviewJS, inline-query rendering, DOM, task checkbox mutation,
   Obsidian plugin API, persistence or live refresh.
 - Queries execute in QuickJS with no host I/O callbacks/module loader, a 256 MiB
-  heap limit and a 30-second execution deadline. Snapshot construction occurs
+  default heap limit and a 30-second execution deadline. Large vaults can use
+  `--memory-limit-mib` (16–4096 MiB); this limits the JS heap, not total process
+  memory. `--timeout-seconds` (1–600) overrides the engine deadline, including
+  JS index construction. Rust snapshot construction occurs
   before that deadline and reads scoped Markdown/CSV content.
 
 ## Build and verify

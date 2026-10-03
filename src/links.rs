@@ -287,7 +287,11 @@ pub fn strip_unwritten_extension(written: &str, target: &str) -> String {
 
 /// The 1-based line an offset falls on.
 pub fn line_of(content: &str, offset: usize) -> usize {
-    content[..offset].matches('\n').count() + 1
+    content.as_bytes()[..offset]
+        .iter()
+        .filter(|&&byte| byte == b'\n')
+        .count()
+        + 1
 }
 
 /// The 1-based column an offset falls on, counted in characters rather than
@@ -301,6 +305,13 @@ pub fn column_of(content: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn line_offsets_can_point_inside_multibyte_characters() {
+        let content = "日本語。\n次。";
+        assert_eq!(line_of(content, 2), 1);
+        assert_eq!(line_of(content, content.len() - 1), 2);
+    }
 
     /// Everything the inline-link syntax reads as punctuation has to come
     /// back out encoded, or the rewrite is no longer the link it replaced.

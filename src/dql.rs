@@ -22,19 +22,19 @@ fn js_error(ctx: &rquickjs::Ctx<'_>, error: rquickjs::Error) -> anyhow::Error {
     anyhow!("JavaScript: {error}")
 }
 
-fn runtime() -> Result<(Runtime, Context)> {
+fn runtime(memory_limit_mib: u32, timeout_seconds: u64) -> Result<(Runtime, Context)> {
     let rt = Runtime::new()?;
-    rt.set_memory_limit(256 * 1024 * 1024);
+    rt.set_memory_limit(memory_limit_mib as usize * 1024 * 1024);
     rt.set_max_stack_size(8 * 1024 * 1024);
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs(timeout_seconds);
     rt.set_interrupt_handler(Some(Box::new(move || Instant::now() > deadline)));
     // No filesystem, network, module loader, process or host callbacks.
     let ctx = Context::full(&rt)?;
     Ok((rt, ctx))
 }
 
-pub fn evaluate(input: &Value) -> Result<Value> {
-    let (_rt, context) = runtime()?;
+pub fn evaluate(input: &Value, memory_limit_mib: u32, timeout_seconds: u64) -> Result<Value> {
+    let (_rt, context) = runtime(memory_limit_mib, timeout_seconds)?;
     context.with(|ctx| {
         ctx.eval::<(), _>(ENGINE).map_err(|e| js_error(&ctx, e))?;
         let function: Function = ctx.globals().get("knapperDql")?;
@@ -275,12 +275,18 @@ pub fn run(
     query: &str,
     origin: Option<&str>,
     timezone: Option<&str>,
+    memory_limit_mib: u32,
+    timeout_seconds: u64,
     format: &str,
 ) -> Result<()> {
     let timezone = timezone
         .map(str::to_string)
         .unwrap_or_else(|| iana_time_zone::get_timezone().unwrap_or_else(|_| "UTC".into()));
-    let output = evaluate(&snapshot(config, origin, query, &timezone)?)?;
+    let output = evaluate(
+        &snapshot(config, origin, query, &timezone)?,
+        memory_limit_mib,
+        timeout_seconds,
+    )?;
     if format == "json" {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else if output["type"] == "table" {
@@ -333,7 +339,7 @@ mod tests {
     use super::*;
     #[test]
     fn unmodified_upstream_suites_run_inside_quickjs() {
-        let (_rt, context) = runtime().unwrap();
+        let (_rt, context) = runtime(256, 30).unwrap();
         context.with(|ctx| {
             ctx.eval::<(), _>(include_str!("../dql/upstream-tests.js"))
                 .map_err(|e| js_error(&ctx, e))
@@ -387,7 +393,7 @@ mod tests {
         for query in queries {
             let input =
                 snapshot(&config, Some("Diary/2026-10-02.md"), query, "Asia/Tokyo").unwrap();
-            let embedded = evaluate(&input).unwrap();
+            let embedded = evaluate(&input, 256, 30).unwrap();
             let mut child =
                 Command::new(std::env::var("KNAPPER_DQL_NODE").unwrap_or_else(|_| "node".into()))
                     .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/dql/reference.mjs"))

@@ -406,6 +406,12 @@ enum Command {
         /// IANA timezone (defaults to the host timezone).
         #[arg(long)]
         timezone: Option<String>,
+        /// JavaScript heap limit in MiB (increase for large vaults).
+        #[arg(long, default_value_t = 256, value_parser = clap::value_parser!(u32).range(16..=4096))]
+        memory_limit_mib: u32,
+        /// Engine execution deadline in seconds, including index construction.
+        #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..=600))]
+        timeout_seconds: u64,
         #[arg(short = 'f', long, default_value = "text", value_parser = ["text", "json"])]
         format: String,
         /// Print bundled engine licenses without reading a vault.
@@ -796,6 +802,8 @@ fn run() -> Result<()> {
             query,
             origin,
             timezone,
+            memory_limit_mib,
+            timeout_seconds,
             format,
             ..
         } => dql::run(
@@ -803,6 +811,8 @@ fn run() -> Result<()> {
             query.as_deref().unwrap(),
             origin.as_deref(),
             timezone.as_deref(),
+            memory_limit_mib,
+            timeout_seconds,
             &format,
         ),
         Command::Query {

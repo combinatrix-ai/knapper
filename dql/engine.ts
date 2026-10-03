@@ -22,6 +22,18 @@ function normalizePath(p: string): string {
 function makeIndex(input: any): any {
   const pages = new Map<string, PageMetadata>();
   const allPaths = new Set<string>(input.files.map((f: any) => f.path));
+  // Build the existing suffix-lookup candidates once. Scanning every vault
+  // path for every unresolved link becomes quadratic on a real vault.
+  const suffixPaths = new Map<string, string[]>();
+  for (const path of allPaths) {
+    const parts = path.replace(/\.(md|markdown)$/i, '').split('/');
+    for (let i = 0; i < parts.length; i++) {
+      const suffix = parts.slice(i).join('/');
+      const matches = suffixPaths.get(suffix) ?? [];
+      matches.push(path);
+      suffixPaths.set(suffix, matches);
+    }
+  }
   const folders = new Set(['']);
   for (const path of allPaths) {
     const parts = path.split('/');
@@ -42,7 +54,7 @@ function makeIndex(input: any): any {
     }
     // Obsidian's basename lookup prefers the closest path to the origin.
     const name = p.replace(/\.(md|markdown)$/i, '');
-    const matches = [...allPaths].filter(path => path.replace(/\.(md|markdown)$/i, '').endsWith('/' + name) || path.replace(/\.(md|markdown)$/i, '') === name);
+    const matches = [...(suffixPaths.get(name) ?? [])];
     const common = (path: string) => {
       const a = path.split('/'), b = origin.split('/'); let n = 0;
       while (n < a.length - 1 && n < b.length - 1 && a[n] === b[n]) n++;
