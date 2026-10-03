@@ -68,3 +68,27 @@ the disposable App or via its CLI, then stop the App and discard that copy/profi
 Only sanitized synthetic results and versions belong in committed evidence.
 `reference-results.json` records the actual baseline comparison; CI baseline
 replay is distinct from executing a desktop App.
+
+## Community-plugin cases
+
+`PluginTasks/Plugin.md` and `tasks-plugin-cases.json` add six Tasks 8.4.0 cases.
+`linter-cases.json` adds six Linter 1.33.0 before/after cases (also second-pass
+results); `quickadd-cases.json` adds six QuickAdd 2.30.0 Capture cases. Their inputs
+are synthetic and their expected outputs were compared with Obsidian 1.13.7 using
+the official CLI. Rust CI replays the recorded results and verifies preview/apply,
+creation and write-scope behavior. These registries are separate from DQL cases;
+`verify-pkm-vault.py` still checks the original seven DQL cases.
+
+To repeat the 18 live plugin comparisons, copy this fixture, install/enable those
+exact versions in the disposable vault, and open it under an isolated profile:
+
+```sh
+python3 scripts/verify-plugin-vault.py --knapper /absolute/path/knapper \
+  --obsidian-cli /path/Obsidian.app/Contents/MacOS/obsidian-cli \
+  --vault /tmp/pkm-live --output /tmp/plugin-comparison.json --allow-fixture-writes
+```
+
+The script prepares synthetic PluginLinter/PluginCapture files and temporarily
+sets a Capture Choice in memory (restored afterwards). It refuses this committed
+fixture as a write target. It does not install plugins or change a regular Vault.
+Version mismatch, wrong vault, plugin absence and comparison differences fail.

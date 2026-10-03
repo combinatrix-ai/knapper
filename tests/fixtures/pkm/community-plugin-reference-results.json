@@ -1,0 +1,504 @@
+{
+  "appVersion": "1.13.7 (installer 1.13.7)",
+  "versions": {
+    "obsidian-tasks-plugin": "8.4.0",
+    "obsidian-linter": "1.33.0",
+    "quickadd": "2.30.0"
+  },
+  "comparisons": [
+    {
+      "id": "tasks-plugin-1",
+      "plugin": "obsidian-tasks-plugin",
+      "obsidian": {
+        "type": "tasks",
+        "total": 3,
+        "beforeLimit": 3,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 7,
+                "status": "/",
+                "description": "Review notes #work",
+                "markdown": "- [/] Review notes #work 🔼 📅 2026-10-03",
+                "due": "2026-10-03",
+                "priority": "2"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 4,
+                "status": " ",
+                "description": "Write `code` #work",
+                "markdown": "- [ ] Write `code` #work ⏫ 📅 2026-10-04",
+                "due": "2026-10-04",
+                "priority": "1"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 5,
+                "status": " ",
+                "description": "Read notes #reading",
+                "markdown": "- [ ] Read notes #reading 📅 2026-10-05",
+                "due": "2026-10-05",
+                "priority": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "knapper": {
+        "type": "tasks",
+        "total": 3,
+        "beforeLimit": 3,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 7,
+                "status": "/",
+                "description": "Review notes #work",
+                "markdown": "- [/] Review notes #work 🔼 📅 2026-10-03",
+                "due": "2026-10-03",
+                "priority": "2"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 4,
+                "status": " ",
+                "description": "Write `code` #work",
+                "markdown": "- [ ] Write `code` #work ⏫ 📅 2026-10-04",
+                "due": "2026-10-04",
+                "priority": "1"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 5,
+                "status": " ",
+                "description": "Read notes #reading",
+                "markdown": "- [ ] Read notes #reading 📅 2026-10-05",
+                "due": "2026-10-05",
+                "priority": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "tasks-plugin-2",
+      "plugin": "obsidian-tasks-plugin",
+      "obsidian": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 1,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 6,
+                "status": "x",
+                "description": "Finish draft #work",
+                "markdown": "- [x] Finish draft #work ✅ 2026-10-02",
+                "due": null,
+                "priority": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "knapper": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 1,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 6,
+                "status": "x",
+                "description": "Finish draft #work",
+                "markdown": "- [x] Finish draft #work ✅ 2026-10-02",
+                "due": null,
+                "priority": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "tasks-plugin-3",
+      "plugin": "obsidian-tasks-plugin",
+      "obsidian": {
+        "type": "tasks",
+        "total": 4,
+        "beforeLimit": 4,
+        "groups": [
+          {
+            "names": [
+              "Done"
+            ],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 6,
+                "status": "x",
+                "description": "Finish draft #work",
+                "markdown": "- [x] Finish draft #work ✅ 2026-10-02",
+                "due": null,
+                "priority": "3"
+              }
+            ]
+          },
+          {
+            "names": [
+              "Todo"
+            ],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 5,
+                "status": " ",
+                "description": "Read notes #reading",
+                "markdown": "- [ ] Read notes #reading 📅 2026-10-05",
+                "due": "2026-10-05",
+                "priority": "3"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 7,
+                "status": "/",
+                "description": "Review notes #work",
+                "markdown": "- [/] Review notes #work 🔼 📅 2026-10-03",
+                "due": "2026-10-03",
+                "priority": "2"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 4,
+                "status": " ",
+                "description": "Write `code` #work",
+                "markdown": "- [ ] Write `code` #work ⏫ 📅 2026-10-04",
+                "due": "2026-10-04",
+                "priority": "1"
+              }
+            ]
+          }
+        ]
+      },
+      "knapper": {
+        "type": "tasks",
+        "total": 4,
+        "beforeLimit": 4,
+        "groups": [
+          {
+            "names": [
+              "Done"
+            ],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 6,
+                "status": "x",
+                "description": "Finish draft #work",
+                "markdown": "- [x] Finish draft #work ✅ 2026-10-02",
+                "due": null,
+                "priority": "3"
+              }
+            ]
+          },
+          {
+            "names": [
+              "Todo"
+            ],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 5,
+                "status": " ",
+                "description": "Read notes #reading",
+                "markdown": "- [ ] Read notes #reading 📅 2026-10-05",
+                "due": "2026-10-05",
+                "priority": "3"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 7,
+                "status": "/",
+                "description": "Review notes #work",
+                "markdown": "- [/] Review notes #work 🔼 📅 2026-10-03",
+                "due": "2026-10-03",
+                "priority": "2"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 4,
+                "status": " ",
+                "description": "Write `code` #work",
+                "markdown": "- [ ] Write `code` #work ⏫ 📅 2026-10-04",
+                "due": "2026-10-04",
+                "priority": "1"
+              }
+            ]
+          }
+        ]
+      },
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "tasks-plugin-4",
+      "plugin": "obsidian-tasks-plugin",
+      "obsidian": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 2,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 7,
+                "status": "/",
+                "description": "Review notes #work",
+                "markdown": "- [/] Review notes #work 🔼 📅 2026-10-03",
+                "due": "2026-10-03",
+                "priority": "2"
+              }
+            ]
+          }
+        ]
+      },
+      "knapper": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 2,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 7,
+                "status": "/",
+                "description": "Review notes #work",
+                "markdown": "- [/] Review notes #work 🔼 📅 2026-10-03",
+                "due": "2026-10-03",
+                "priority": "2"
+              }
+            ]
+          }
+        ]
+      },
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "tasks-plugin-5",
+      "plugin": "obsidian-tasks-plugin",
+      "obsidian": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 1,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 4,
+                "status": " ",
+                "description": "Write `code` #work",
+                "markdown": "- [ ] Write `code` #work ⏫ 📅 2026-10-04",
+                "due": "2026-10-04",
+                "priority": "1"
+              }
+            ]
+          }
+        ]
+      },
+      "knapper": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 1,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 4,
+                "status": " ",
+                "description": "Write `code` #work",
+                "markdown": "- [ ] Write `code` #work ⏫ 📅 2026-10-04",
+                "due": "2026-10-04",
+                "priority": "1"
+              }
+            ]
+          }
+        ]
+      },
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "tasks-plugin-6",
+      "plugin": "obsidian-tasks-plugin",
+      "obsidian": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 1,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 5,
+                "status": " ",
+                "description": "Read notes #reading",
+                "markdown": "- [ ] Read notes #reading 📅 2026-10-05",
+                "due": "2026-10-05",
+                "priority": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "knapper": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 1,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 5,
+                "status": " ",
+                "description": "Read notes #reading",
+                "markdown": "- [ ] Read notes #reading 📅 2026-10-05",
+                "due": "2026-10-05",
+                "priority": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "trailing-protected",
+      "plugin": "obsidian-linter",
+      "obsidian": "text\n```\nkeep   \n```\n<!-- linter-disable -->\nkeep   \n<!-- linter-enable -->\nafter",
+      "knapper": "text\n```\nkeep   \n```\n<!-- linter-disable -->\nkeep   \n<!-- linter-enable -->\nafter",
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "multiple-protected",
+      "plugin": "obsidian-linter",
+      "obsidian": "words here\n```\nkeep   here\n```\n- [ ] task words",
+      "knapper": "words here\n```\nkeep   here\n```\n- [ ] task words",
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "heading-yaml",
+      "plugin": "obsidian-linter",
+      "obsidian": "---\ntitle: Example\n---\n\n# Heading\n\nbody\n\n## Next\n\ntext",
+      "knapper": "---\ntitle: Example\n---\n\n# Heading\n\nbody\n\n## Next\n\ntext",
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "combined",
+      "plugin": "obsidian-linter",
+      "obsidian": "# Heading\n\nbody text\n```\nkeep   \n```",
+      "knapper": "# Heading\n\nbody text\n```\nkeep   \n```",
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "disabled-frontmatter",
+      "plugin": "obsidian-linter",
+      "obsidian": "---\ndisabled rules: [all]\n---\ntext   ",
+      "knapper": "---\ndisabled rules: [all]\n---\ntext   ",
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "unicode",
+      "plugin": "obsidian-linter",
+      "obsidian": "日本語 の  メモ",
+      "knapper": "日本語 の  メモ",
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "append",
+      "plugin": "quickadd",
+      "obsidian": "old\n記録",
+      "knapper": "old\n記録",
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "top-yaml",
+      "plugin": "quickadd",
+      "obsidian": "---\ntitle: Example\n---\n\n記録\n# Body\n",
+      "knapper": "---\ntitle: Example\n---\n\n記録\n# Body\n",
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "cursor-unicode",
+      "plugin": "quickadd",
+      "obsidian": "old\nbefore😀内容after",
+      "knapper": "old\nbefore😀内容after",
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "literal-tokens",
+      "plugin": "quickadd",
+      "obsidian": "{{CURSOR}} <% literal %>",
+      "knapper": "{{CURSOR}} <% literal %>",
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "empty",
+      "plugin": "quickadd",
+      "obsidian": "old",
+      "knapper": "old",
+      "liveEqual": true,
+      "baselineEqual": true
+    },
+    {
+      "id": "crlf-top",
+      "plugin": "quickadd",
+      "obsidian": "---\r\ntitle: Example\r\n---\r\n\r\n記録\n# Body\r\n",
+      "knapper": "---\r\ntitle: Example\r\n---\r\n\r\n記録\n# Body\r\n",
+      "liveEqual": true,
+      "baselineEqual": true
+    }
+  ],
+  "verifiedAt": "2026-10-03T13:53:29.585260+00:00",
+  "transport": "actual-App/official-CLI"
+}

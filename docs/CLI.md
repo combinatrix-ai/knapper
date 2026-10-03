@@ -2062,3 +2062,32 @@ Options:
   -v, --vault <VAULT>    Path to vault (overrides config)
   -h, --help             Print help
 ```
+
+### Obsidian Tasks query engine
+
+```sh
+knapper tasks --query 'not done
+sort by due
+limit 10' --format json
+knapper licenses
+```
+
+This is the pinned read-only Tasks 8.4.0 subset in [spec.md](../spec.md#tasks-query-contract).
+Native task filters and mutations are separate and cannot be combined with this
+query. It uses default plugin settings, not installed Tasks data.json.
+
+### Selected Linter rules and QuickAdd Capture
+
+```sh
+knapper format-note Note.md --rule trailing-spaces --format json
+knapper format-note Note.md --rule heading-blank-lines --rule trailing-spaces --apply
+knapper capture Log.md --text 'A new entry' --format json
+knapper capture Log.md --text 'A new entry' --position top --apply
+knapper capture New.md --text 'A new entry' --create --apply
+knapper capture Log.md --text 'A new entry' --template CaptureTemplate.md --apply
+```
+
+Formatting and capture preview the resulting note by default. `--apply` writes;
+`--create` explicitly permits a new capture note under an existing directory.
+Templates support `{{VALUE}}` and `{{CURSOR}}`; text input remains literal.
+See [spec.md](../spec.md) for the pinned versions and exact supported subsets.

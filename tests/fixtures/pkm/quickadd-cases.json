@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "pluginVersion": "2.30.0",
+  "appVersion": "1.13.7",
+  "transport": "actual-App/official-CLI",
+  "cases": [
+    {
+      "id": "append",
+      "feature": "QUICKADD-CAPTURE",
+      "before": "old",
+      "text": "記録",
+      "template": "{{VALUE}}",
+      "position": "append",
+      "expected": "old\n記録",
+      "equal": true
+    },
+    {
+      "id": "top-yaml",
+      "feature": "QUICKADD-CAPTURE",
+      "before": "---\ntitle: Example\n---\n\n# Body\n",
+      "text": "記録",
+      "template": "{{VALUE}}",
+      "position": "top",
+      "expected": "---\ntitle: Example\n---\n\n記録\n# Body\n",
+      "equal": true
+    },
+    {
+      "id": "cursor-unicode",
+      "feature": "QUICKADD-CAPTURE",
+      "before": "old\n",
+      "text": "😀内容",
+      "template": "before{{CURSOR}}{{VALUE}}after",
+      "position": "append",
+      "expected": "old\nbefore😀内容after",
+      "equal": true
+    },
+    {
+      "id": "literal-tokens",
+      "feature": "QUICKADD-CAPTURE",
+      "before": "",
+      "text": "{{CURSOR}} <% literal %>",
+      "template": "{{VALUE}}",
+      "position": "append",
+      "expected": "{{CURSOR}} <% literal %>",
+      "equal": true
+    },
+    {
+      "id": "empty",
+      "feature": "QUICKADD-CAPTURE",
+      "before": "old",
+      "text": "",
+      "template": "{{VALUE}}{{CURSOR}}",
+      "position": "append",
+      "expected": "old",
+      "equal": true
+    },
+    {
+      "id": "crlf-top",
+      "feature": "QUICKADD-CAPTURE",
+      "before": "---\r\ntitle: Example\r\n---\r\n\r\n# Body\r\n",
+      "text": "記録",
+      "template": "{{VALUE}}",
+      "position": "top",
+      "expected": "---\r\ntitle: Example\r\n---\r\n\r\n記録\n# Body\r\n",
+      "equal": true
+    }
+  ]
+}

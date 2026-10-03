@@ -55,7 +55,14 @@ an upstream test count alone is not evidence of complete compatibility.
 | DV-RENDER | Query-block and inline-query rendering | None | Unsupported | No rendering adapter |
 | DV-JS | DataviewJS and Obsidian plugin API | None | Unsupported | Host I/O and arbitrary-JS checks in `tests/dql.rs` |
 | TASKS-DATA | Tasks checkbox/date/priority/recurrence conventions | Native `tasks` commands | Implemented subset | Obsidian fixture and task tests |
-| TASKS-QUERY | Tasks query-block language, plugin settings and recurrence execution | None | Unsupported | Reading recurrence text is not executing recurrence |
+| TASKS-QUERY | Tasks query-block language | `tasks --query` | Implemented pinned read-only subset | 40 selected upstream tests and six same-version actual-App/CLI references |
+| LINTER-FORMAT | Linter deterministic spacing rules | `format-note` | Implemented three-rule subset | 54 selected upstream tests and six actual-App/CLI references |
+| QUICKADD-CAPTURE | QuickAdd explicit capture placement | `capture` | Implemented narrow native adapter using upstream helpers | 40 selected upstream tests and six actual-App/CLI references |
+| PERIODIC-NOTES | Periodic Notes configuration | None | Planned | Candidate assessment only |
+| TAG-WRANGLER | Tag rename/merge behavior | None | Planned | Candidate assessment only |
+| KANBAN-DATA | Kanban Markdown board data | None | Planned | Candidate assessment only |
+| OMNISEARCH | Omnisearch ranking | None | Planned | Candidate assessment only |
+| TEMPLATER-RUNTIME | Full Templater runtime | None | Planned | License/host API design required |
 | TEMPLATER-DATE | Templater date/title helpers | `daily` template expansion | Partial | Template and daily-note tests |
 
 ## Core Markdown and metadata
@@ -79,8 +86,8 @@ Daily Notes, Periodic Notes, or Templater settings are not imported automaticall
 
 Native Tasks parsing recognizes checkboxes, configured custom statuses, date
 markers (due/done/created/scheduled/start), priorities and recurrence text.
-It does not execute Tasks query blocks or import Tasks global filters/status
-settings. DQL task metadata is produced by the vendored Dataview importer;
+The native adapter does not execute Tasks query blocks or import Tasks global filters/status
+settings; `tasks --query` uses the separate pinned adapter described below. DQL task metadata is produced by the vendored Dataview importer;
 knapper's native task configuration is not the DQL status engine.
 
 ## Dataview contract
@@ -328,3 +335,106 @@ unimplemented candidates; inspection is not a compatibility test.
   existing bookmark adapter; no automatic arbitrary-plugin execution.
 - Faster whole-vault snapshots/indexing while preserving query and link behavior.
 - CI automation of same-version actual-Obsidian differential tests where practical.
+
+## Tasks query contract
+
+`tasks --query SOURCE --format json|text` embeds Tasks 8.4.0 at
+`692e965ecbaad197221fae9ddff13f5c5fa6ece6` under MIT. It reads scoped Markdown
+notes and masks code fences/frontmatter/comments, retaining original task text.
+It uses the upstream task parser, default emoji serializer, default status
+registry, query evaluator, sort/group/limit and default sorting. It does not
+import plugin data.json, global filters/queries, presets or filename date fallback.
+Native task options/mutations cannot be combined with `--query`.
+
+Supported instructions (case-insensitive; one per line): `done`, `not done`,
+`is recurring`, `is not recurring`; `has FIELD date`/`no FIELD date` and
+`FIELD before|after|on YYYY-MM-DD` for due/start/scheduled/created/done/cancelled;
+`FIELD includes|does not include TEXT` for description/path/folder/filename/heading/tags;
+`priority is highest|high|medium|normal|low|lowest`; `sort by FIELD [reverse]`
+for date fields, priority, description, path, filename, folder, heading, status;
+`group by FIELD` for those fields except description; `limit [to] N [task|tasks]`.
+Blank lines and # comments are accepted. Other instructions, relative dates,
+placeholders, custom JS, recurrence execution and GUI rendering are unsupported
+and fail explicitly. Date parsing/group labels use upstream English defaults and
+host-local time; no separate timezone override is provided yet.
+
+JSON contains `type`, `total`, `beforeLimit`, and `groups` with `names`/`tasks`.
+Tasks expose path, one-based line, status marker, description, serialized Markdown,
+due date and upstream priority value. Heading context currently recognizes ATX
+headings; setext/callout/list hierarchy and full file metadata are not claimed.
+No writes occur. Runtime limits: 256 MiB and 30 seconds, after Rust scanning.
+Six synthetic comparisons in `tests/fixtures/pkm/tasks-plugin-cases.json` agree
+with actual Obsidian 1.13.7 + Tasks 8.4.0 via official CLI; recorded CI replay is
+separate from live App execution. Four unchanged upstream suites (40 cases) run
+in QuickJS; full Query/Filter/recurrence upstream suites remain additional work.
+
+## Linter formatting contract
+
+`format-note FILE --rule RULE [--rule RULE] [--apply] --format text|json`
+embeds unchanged Linter 1.33.0 rule algorithms/protected-range processing at
+`b15df18a182bbbc750209a8913a89469a164d01a`. Supported rules are
+`remove-multiple-spaces`, `heading-blank-lines`, `trailing-spaces`, in that order
+regardless of CLI order. Upstream default options are used; per-rule options and
+installed data.json are not imported. This adapter selects individual rules;
+it does not claim the complete upstream batching/special-rule orchestration.
+
+Code/math/YAML/custom-disable protection follows each upstream rule's declared
+ignore types. YAML `disabled rules` is respected. The input must be a scoped
+Markdown file whose canonical path is inside the vault; exclusions and escaped
+symlinks fail. Preview is the default and writes nothing. JSON exposes path,
+ordered rules, changed/applied and complete before/after strings; text shows the
+resulting note. `--apply` writes only after checking the input has not changed
+during evaluation. This check is not a transactional cross-process lock.
+
+Six exact-string fixtures match actual Obsidian 1.13.7 + Linter 1.33.0, including
+combined rules, protected regions, disabled frontmatter and Japanese text. Their
+second-pass results are also recorded. Upstream remove-multiple-spaces can need a
+second pass for adjacent space runs (`日本語   の  メモ`); the adapter preserves
+that behavior rather than promising idempotence. 54 unchanged selected upstream
+rule cases run in QuickJS. Full YAML/title/timestamp rules, paste/editor hooks,
+custom commands, settings import and arbitrary custom replacements are unsupported.
+
+## QuickAdd capture contract
+
+`capture FILE --text TEXT [--template FILE] --position append|top [--create]
+[--apply] --format text|json` is a native adapter using unchanged QuickAdd 2.30.0
+capture-placement, user-text protection and note-body insertion helpers at
+`943649ddb105ee166c52b44222e7178d7632a98a`. It is not the full Choice engine.
+
+All input is explicit. Without a template the format is `{{VALUE}}`. Templates
+support case-insensitive `{{VALUE}}` and `{{CURSOR}}` only; other tokens and
+Templater tags fail. Injected TEXT is protected as data, so token/tag-shaped text
+inside it remains literal. A template is a scoped in-vault Markdown input.
+`append` ends an existing unterminated last line with one newline before inserting;
+`top` inserts below frontmatter and its separator line using upstream placement.
+Cursor output is a UTF-16 offset, not a Rust byte offset; no editor cursor moves.
+Empty/ASCII-whitespace-only capture is a no-op. No implicit trailing newline is
+added to an appended payload.
+
+Targets are scoped in-vault Markdown files. Missing targets require `--create`;
+parent directories must already exist, and creation uses create-new semantics.
+Preview does not create or change files. Apply checks unchanged existing content;
+it does not merge concurrent edits or lock another process. JSON exposes path,
+changed/applied, before/after and cursor. A missing/unsupported template fails
+before writing. Full Template Choices, data.json Choice import, prompts, macros,
+DATE/FILE tokens, clipboard, selection, AI and Templater are unsupported.
+
+Six note-output fixtures match actual Obsidian 1.13.7 + QuickAdd 2.30.0 Capture
+Choices through its API invoked by the official CLI; 40 unchanged selected helper
+cases run in QuickJS. The headless frontmatter-boundary adapter is additionally
+covered by these upstream tests (including CRLF and EOF fences).
+
+## Community-plugin verification
+
+The three case registries in `tests/fixtures/pkm` hold six same-version actual-App
+comparisons per plugin. CI replays those results; it also runs all 134 selected
+upstream test cases in the embedded QuickJS engine. These are selected suites,
+not all upstream tests. The generated bundles and dependency notices are checked
+for reproducible regeneration. `knapper licenses` prints their MIT/BSD/0BSD/ISC/
+Apache-2.0/BlueOak notices along with the existing DQL/runtime notices.
+
+`scripts/verify-plugin-vault.py` reruns all 18 comparisons against a disposable
+fixture copy opened in an isolated profile. It checks vault identity and exact
+plugin versions, and requires `--allow-fixture-writes` because Linter/Capture probes
+prepare/modify synthetic files. Tasks renderer child access is a pinned test probe,
+not a public plugin API contract. Normal user Vault settings are never needed.

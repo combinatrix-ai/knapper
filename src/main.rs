@@ -21,12 +21,14 @@ mod notes_cmd;
 mod obsidian;
 mod org;
 mod parser;
+mod plugin_notes;
 mod providers;
 mod query;
 mod refs;
 mod repair;
 mod skill;
 mod tasks;
+mod tasks_query;
 mod templater;
 mod topic;
 mod update;
@@ -172,6 +174,34 @@ enum ConfigCommand {
 #[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Command {
+    /// Show notices for all embedded engines and runtime dependencies.
+    Licenses,
+    /// Preview or apply a QuickAdd-compatible capture with explicit input.
+    Capture {
+        file: String,
+        #[arg(long)]
+        text: String,
+        #[arg(long)]
+        template: Option<String>,
+        #[arg(long, default_value = "append", value_parser = ["append", "top"])]
+        position: String,
+        #[arg(long)]
+        create: bool,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+        format: String,
+    },
+    /// Preview or apply selected pinned Obsidian Linter rules to one note.
+    FormatNote {
+        file: String,
+        #[arg(long, required = true, value_parser = ["heading-blank-lines", "remove-multiple-spaces", "trailing-spaces"])]
+        rule: Vec<String>,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+        format: String,
+    },
     /// List outgoing links from a file.
     Links {
         file: String,
@@ -462,6 +492,8 @@ enum Command {
     },
     /// Find and filter tasks (- [ ] items) in the vault.
     Tasks {
+        #[arg(long, help = "Read-only pinned Obsidian Tasks query (separate from native filters)", conflicts_with_all = ["all", "done", "recurring", "overdue", "has_date", "available", "due_on", "due_from", "due_to", "scheduled_on", "scheduled_from", "scheduled_to", "start_on", "start_from", "start_to", "created_from", "created_to", "done_from", "done_to", "file", "exclude", "tag", "status", "after", "before", "context", "breadcrumbs", "group", "prose_only"])]
+        query: Option<String>,
         #[command(subcommand)]
         action: Option<TaskCommand>,
         #[arg(long = "all", help = "Include completed tasks")]
@@ -593,6 +625,7 @@ fn run() -> Result<()> {
             | Command::Provider(_)
             | Command::Resolve { .. }
             | Command::Dql { licenses: true, .. }
+            | Command::Licenses
     ) {
         update_notice::notify_and_schedule();
     }
@@ -603,6 +636,14 @@ fn run() -> Result<()> {
     // about the local provider config rather than about any note, so they
     // work from anywhere too.
     match &cli.command {
+        Command::Licenses => {
+            println!(
+                "{}\n{}",
+                dql::NOTICES,
+                include_str!("../plugins/THIRD_PARTY_NOTICES.txt")
+            );
+            return Ok(());
+        }
         Command::Dql { licenses: true, .. } => {
             println!("{}", dql::NOTICES);
             return Ok(());
@@ -648,6 +689,33 @@ fn run() -> Result<()> {
     let config = vault::load_config(cli.config.as_deref(), cli.vault.as_deref())?;
 
     match cli.command {
+        Command::Licenses => unreachable!(),
+        Command::Capture {
+            file,
+            text,
+            template,
+            position,
+            create,
+            apply,
+            format,
+        } => plugin_notes::capture(
+            &config,
+            &file,
+            &plugin_notes::CaptureOptions {
+                text: &text,
+                template: template.as_deref(),
+                position: &position,
+                create,
+                apply,
+                format: &format,
+            },
+        ),
+        Command::FormatNote {
+            file,
+            rule,
+            apply,
+            format,
+        } => plugin_notes::format_note(&config, &file, &rule, apply, &format),
         Command::Links {
             file,
             after,
@@ -848,6 +916,16 @@ fn run() -> Result<()> {
         }
         Command::Fields { format } => query::fields(&config, &format),
         Command::Tasks {
+            action: Some(_),
+            query: Some(_),
+            ..
+        } => anyhow::bail!("--query cannot be combined with a task mutation"),
+        Command::Tasks {
+            query: Some(query),
+            format,
+            ..
+        } => tasks_query::query(&config, &query, &format),
+        Command::Tasks {
             action: Some(action),
             ..
         } => match action {
@@ -893,6 +971,7 @@ fn run() -> Result<()> {
         },
         Command::Tasks {
             action: None,
+            query: None,
             all,
             done,
             recurring,

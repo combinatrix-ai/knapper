@@ -1,7 +1,8 @@
 # Plugin candidate review
 
-Reviewed 2026-10-03. These are source-inspected candidates, not implemented or
-runtime-tested compatibility. The existing embedded Dataview runtime does not
+Reviewed 2026-10-03. Narrow Tasks, Linter and QuickAdd adapters are now implemented
+and tested on the development branch; their exact contracts are in [spec.md](../spec.md).
+The table below records the original source assessment, not a blanket compatibility claim. The existing embedded Dataview runtime does not
 establish that other plugins run unchanged in QuickJS.
 
 ## Initial candidates
@@ -95,5 +96,6 @@ is an unconditional OSS-vendoring candidate.
 Choose and document a narrow behavior slice; pin the source and dependencies;
 audit notices/licenses and host imports; adapt the upstream tests; extend
 `tests/fixtures/pkm`; record same-version App/CLI results; then update `spec.md`
-with implemented behavior and remaining differences. Candidate inspection has not
-run the upstream suites or proved QuickJS execution for these plugins.
+with implemented behavior and remaining differences. The first slices now have 134 selected upstream cases in QuickJS and 18 same-version
+App/CLI comparisons. Full upstream suites and the additional candidate plugins
+remain future work.

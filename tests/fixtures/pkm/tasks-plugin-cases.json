@@ -1,0 +1,224 @@
+{
+  "schemaVersion": 1,
+  "pluginVersion": "8.4.0",
+  "appVersion": "1.13.7",
+  "transport": "actual-App/official-CLI",
+  "cases": [
+    {
+      "id": "tasks-plugin-1",
+      "feature": "TASKS-QUERY",
+      "query": "not done\npath includes PluginTasks/Plugin.md\nsort by due",
+      "expected": {
+        "type": "tasks",
+        "total": 3,
+        "beforeLimit": 3,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 7,
+                "status": "/",
+                "description": "Review notes #work",
+                "markdown": "- [/] Review notes #work 🔼 📅 2026-10-03",
+                "due": "2026-10-03",
+                "priority": "2"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 4,
+                "status": " ",
+                "description": "Write `code` #work",
+                "markdown": "- [ ] Write `code` #work ⏫ 📅 2026-10-04",
+                "due": "2026-10-04",
+                "priority": "1"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 5,
+                "status": " ",
+                "description": "Read notes #reading",
+                "markdown": "- [ ] Read notes #reading 📅 2026-10-05",
+                "due": "2026-10-05",
+                "priority": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "equal": true
+    },
+    {
+      "id": "tasks-plugin-2",
+      "feature": "TASKS-QUERY",
+      "query": "done\npath includes PluginTasks/Plugin.md",
+      "expected": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 1,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 6,
+                "status": "x",
+                "description": "Finish draft #work",
+                "markdown": "- [x] Finish draft #work ✅ 2026-10-02",
+                "due": null,
+                "priority": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "equal": true
+    },
+    {
+      "id": "tasks-plugin-3",
+      "feature": "TASKS-QUERY",
+      "query": "path includes PluginTasks/Plugin.md\ngroup by status\nsort by description",
+      "expected": {
+        "type": "tasks",
+        "total": 4,
+        "beforeLimit": 4,
+        "groups": [
+          {
+            "names": [
+              "Done"
+            ],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 6,
+                "status": "x",
+                "description": "Finish draft #work",
+                "markdown": "- [x] Finish draft #work ✅ 2026-10-02",
+                "due": null,
+                "priority": "3"
+              }
+            ]
+          },
+          {
+            "names": [
+              "Todo"
+            ],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 5,
+                "status": " ",
+                "description": "Read notes #reading",
+                "markdown": "- [ ] Read notes #reading 📅 2026-10-05",
+                "due": "2026-10-05",
+                "priority": "3"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 7,
+                "status": "/",
+                "description": "Review notes #work",
+                "markdown": "- [/] Review notes #work 🔼 📅 2026-10-03",
+                "due": "2026-10-03",
+                "priority": "2"
+              },
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 4,
+                "status": " ",
+                "description": "Write `code` #work",
+                "markdown": "- [ ] Write `code` #work ⏫ 📅 2026-10-04",
+                "due": "2026-10-04",
+                "priority": "1"
+              }
+            ]
+          }
+        ]
+      },
+      "equal": true
+    },
+    {
+      "id": "tasks-plugin-4",
+      "feature": "TASKS-QUERY",
+      "query": "not done\npath includes PluginTasks/Plugin.md\ndue before 2026-10-05\nsort by due\nlimit 1",
+      "expected": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 2,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 7,
+                "status": "/",
+                "description": "Review notes #work",
+                "markdown": "- [/] Review notes #work 🔼 📅 2026-10-03",
+                "due": "2026-10-03",
+                "priority": "2"
+              }
+            ]
+          }
+        ]
+      },
+      "equal": true
+    },
+    {
+      "id": "tasks-plugin-5",
+      "feature": "TASKS-QUERY",
+      "query": "path includes PluginTasks/Plugin.md\npriority is high",
+      "expected": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 1,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 4,
+                "status": " ",
+                "description": "Write `code` #work",
+                "markdown": "- [ ] Write `code` #work ⏫ 📅 2026-10-04",
+                "due": "2026-10-04",
+                "priority": "1"
+              }
+            ]
+          }
+        ]
+      },
+      "equal": true
+    },
+    {
+      "id": "tasks-plugin-6",
+      "feature": "TASKS-QUERY",
+      "query": "path includes PluginTasks/Plugin.md\ntags includes #reading",
+      "expected": {
+        "type": "tasks",
+        "total": 1,
+        "beforeLimit": 1,
+        "groups": [
+          {
+            "names": [],
+            "tasks": [
+              {
+                "path": "PluginTasks/Plugin.md",
+                "line": 5,
+                "status": " ",
+                "description": "Read notes #reading",
+                "markdown": "- [ ] Read notes #reading 📅 2026-10-05",
+                "due": "2026-10-05",
+                "priority": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "equal": true
+    }
+  ]
+}

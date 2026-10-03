@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 const ENGINE: &str = include_str!("../dql/engine.js");
 pub const NOTICES: &str = include_str!("../dql/THIRD_PARTY_NOTICES.txt");
 
-fn js_error(ctx: &rquickjs::Ctx<'_>, error: rquickjs::Error) -> anyhow::Error {
+pub(crate) fn js_error(ctx: &rquickjs::Ctx<'_>, error: rquickjs::Error) -> anyhow::Error {
     if error.is_exception() {
         let value = ctx.catch();
         if let Some(exception) = value.as_exception() {

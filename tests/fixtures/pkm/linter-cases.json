@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "pluginVersion": "1.33.0",
+  "appVersion": "1.13.7",
+  "transport": "actual-App/official-CLI",
+  "cases": [
+    {
+      "id": "trailing-protected",
+      "feature": "LINTER-FORMAT",
+      "before": "text \t \n```\nkeep   \n```\n<!-- linter-disable -->\nkeep   \n<!-- linter-enable -->\nafter   ",
+      "rules": [
+        "trailing-spaces"
+      ],
+      "expected": "text\n```\nkeep   \n```\n<!-- linter-disable -->\nkeep   \n<!-- linter-enable -->\nafter",
+      "expectedSecondPass": "text\n```\nkeep   \n```\n<!-- linter-disable -->\nkeep   \n<!-- linter-enable -->\nafter",
+      "idempotent": true,
+      "equal": true
+    },
+    {
+      "id": "multiple-protected",
+      "feature": "LINTER-FORMAT",
+      "before": "words   here\n```\nkeep   here\n```\n- [ ] task   words",
+      "rules": [
+        "remove-multiple-spaces"
+      ],
+      "expected": "words here\n```\nkeep   here\n```\n- [ ] task words",
+      "expectedSecondPass": "words here\n```\nkeep   here\n```\n- [ ] task words",
+      "idempotent": true,
+      "equal": true
+    },
+    {
+      "id": "heading-yaml",
+      "feature": "LINTER-FORMAT",
+      "before": "---\ntitle: Example\n---\n# Heading\nbody\n## Next\ntext",
+      "rules": [
+        "heading-blank-lines"
+      ],
+      "expected": "---\ntitle: Example\n---\n\n# Heading\n\nbody\n\n## Next\n\ntext",
+      "expectedSecondPass": "---\ntitle: Example\n---\n\n# Heading\n\nbody\n\n## Next\n\ntext",
+      "idempotent": true,
+      "equal": true
+    },
+    {
+      "id": "combined",
+      "feature": "LINTER-FORMAT",
+      "before": "# Heading\nbody   text   \n```\nkeep   \n```",
+      "rules": [
+        "heading-blank-lines",
+        "remove-multiple-spaces",
+        "trailing-spaces"
+      ],
+      "expected": "# Heading\n\nbody text\n```\nkeep   \n```",
+      "expectedSecondPass": "# Heading\n\nbody text\n```\nkeep   \n```",
+      "idempotent": true,
+      "equal": true
+    },
+    {
+      "id": "disabled-frontmatter",
+      "feature": "LINTER-FORMAT",
+      "before": "---\ndisabled rules: [all]\n---\ntext   ",
+      "rules": [
+        "trailing-spaces"
+      ],
+      "expected": "---\ndisabled rules: [all]\n---\ntext   ",
+      "expectedSecondPass": "---\ndisabled rules: [all]\n---\ntext   ",
+      "idempotent": true,
+      "equal": true
+    },
+    {
+      "id": "unicode",
+      "feature": "LINTER-FORMAT",
+      "before": "日本語   の  メモ   ",
+      "rules": [
+        "remove-multiple-spaces",
+        "trailing-spaces"
+      ],
+      "expected": "日本語 の  メモ",
+      "expectedSecondPass": "日本語 の メモ",
+      "idempotent": false,
+      "equal": true
+    }
+  ]
+}
