@@ -150,5 +150,31 @@
         ]
       }
     }
+  ],
+  "pluginSuites": [
+    {
+      "kind": "tasks",
+      "feature": "TASKS-QUERY",
+      "file": "tasks-plugin-cases.json",
+      "plugin": "obsidian-tasks-plugin"
+    },
+    {
+      "kind": "linter",
+      "feature": "LINTER-FORMAT",
+      "file": "linter-cases.json",
+      "plugin": "obsidian-linter"
+    },
+    {
+      "kind": "quickadd",
+      "feature": "QUICKADD-CAPTURE",
+      "file": "quickadd-cases.json",
+      "plugin": "quickadd"
+    }
+  ],
+  "pluginKnownGaps": [
+    {
+      "feature": "TASKS-QUERY",
+      "file": "tasks-plugin-known-gaps.json"
+    }
   ]
 }

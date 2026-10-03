@@ -76,7 +76,8 @@ replay is distinct from executing a desktop App.
 results); `quickadd-cases.json` adds six QuickAdd 2.30.0 Capture cases. Their inputs
 are synthetic and their expected outputs were compared with Obsidian 1.13.7 using
 the official CLI. Rust CI replays the recorded results and verifies preview/apply,
-creation and write-scope behavior. These registries are separate from DQL cases;
+creation and write-scope behavior. `cases.json` registers these three suites and the known gap via `pluginSuites` /
+`pluginKnownGaps`. Their query languages are kept separate from DQL cases;
 `verify-pkm-vault.py` still checks the original seven DQL cases.
 
 To repeat the 18 live plugin comparisons, copy this fixture, install/enable those

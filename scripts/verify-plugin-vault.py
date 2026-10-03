@@ -43,7 +43,9 @@ def main():
     if pathlib.Path(info['path']).resolve() != vault:
         raise RuntimeError('CLI connected to a different vault')
     records = []
-    for kind, filename, plugin in [('tasks', 'tasks-plugin-cases.json', 'obsidian-tasks-plugin'), ('linter', 'linter-cases.json', 'obsidian-linter'), ('quickadd', 'quickadd-cases.json', 'quickadd')]:
+    registry = json.loads((vault / 'cases.json').read_text())
+    for suite in registry['pluginSuites']:
+        kind, filename, plugin = suite['kind'], suite['file'], suite['plugin']
         manifest = json.loads((vault / filename).read_text())
         if info['versions'].get(plugin) != manifest['pluginVersion']:
             raise RuntimeError('Plugin version mismatch: ' + plugin)
