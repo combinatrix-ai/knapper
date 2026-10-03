@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "timezone": "Asia/Tokyo",
+  "cases": [
+    {
+      "id": "reading-list",
+      "feature": "DV-FIELDS",
+      "query": "TABLE WITHOUT ID file.name, rating, status FROM \"Books\" SORT rating DESC",
+      "expected": {
+        "type": "table",
+        "values": [
+          [
+            "Field Guide",
+            5,
+            "finished"
+          ],
+          [
+            "Notebook",
+            3,
+            "reading"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "todo-status-and-priority",
+      "feature": "DV-INDEX",
+      "query": "TABLE WITHOUT ID t.text, t.status, t.completed, t.p FROM \"Tasks\" FLATTEN file.tasks AS t SORT t.line",
+      "expected": {
+        "type": "table",
+        "values": [
+          [
+            "Draft outline [p:: 1] [due:: 2026-10-04]",
+            " ",
+            false,
+            1
+          ],
+          [
+            "Collect notes [completion:: 2026-10-02]",
+            "x",
+            true,
+            null
+          ],
+          [
+            "Review draft [p:: 2]",
+            "/",
+            false,
+            2
+          ],
+          [
+            "Prepare workspace [p:: 1] [completion:: 2026-10-01]",
+            "x",
+            true,
+            1
+          ],
+          [
+            "日本語のメモを整理 [p:: 3]",
+            " ",
+            false,
+            3
+          ]
+        ]
+      }
+    },
+    {
+      "id": "todo-due-date",
+      "feature": "DV-INDEX",
+      "query": "TABLE WITHOUT ID t.p, dateformat(t.due, \"yyyy-MM-dd\") FROM \"Tasks\" FLATTEN file.tasks AS t WHERE t.due",
+      "expected": {
+        "type": "table",
+        "values": [
+          [
+            1,
+            "2026-10-04"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "daily-aggregate",
+      "feature": "DV-DQL",
+      "query": "TABLE WITHOUT ID length(rows), sum(rows.messages) FROM \"Daily\" GROUP BY true",
+      "expected": {
+        "type": "table",
+        "values": [
+          [
+            2,
+            24
+          ]
+        ]
+      }
+    },
+    {
+      "id": "author-link",
+      "feature": "DV-FIELDS",
+      "query": "TABLE WITHOUT ID file.name, meta(author).path FROM \"Books\" SORT file.name",
+      "expected": {
+        "type": "table",
+        "values": [
+          [
+            "Field Guide",
+            "People/Example Author.md"
+          ],
+          [
+            "Notebook",
+            "People/Example Author.md"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "bookmark-membership",
+      "feature": "CORE-BOOKMARKS",
+      "query": "LIST WITHOUT ID file.path WHERE file.starred SORT file.path",
+      "expected": {
+        "type": "list",
+        "values": [
+          "Books/Field Guide.md",
+          "Tasks/Todo.md"
+        ]
+      }
+    },
+    {
+      "id": "open-tasks",
+      "feature": "DV-INDEX",
+      "query": "TASK FROM \"Tasks\" WHERE !completed SORT line",
+      "taskFields": [
+        "text",
+        "status",
+        "completed"
+      ],
+      "expected": {
+        "type": "task",
+        "tasks": [
+          {
+            "text": "Draft outline [p:: 1] [due:: 2026-10-04]",
+            "status": " ",
+            "completed": false
+          },
+          {
+            "text": "Review draft [p:: 2]",
+            "status": "/",
+            "completed": false
+          },
+          {
+            "text": "日本語のメモを整理 [p:: 3]",
+            "status": " ",
+            "completed": false
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "type": "group",
+      "title": "PKM",
+      "items": [
+        {
+          "type": "file",
+          "path": "Tasks/Todo.md",
+          "subpath": "#Next"
+        },
+        {
+          "type": "file",
+          "path": "Books/Field Guide.md"
+        }
+      ]
+    }
+  ]
+}

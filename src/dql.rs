@@ -121,7 +121,11 @@ fn markdown_metadata(contents: &str) -> Result<Value> {
                         lists[*parent_index]["hasChild"] = json!(true);
                     }
                 }
-                let mut item = json!({"position":position(range.start,range.end),"parent":parent});
+                // CommonMark includes trailing blank lines in item ranges;
+                // Obsidian's metadata ends on the last content line. Keeping
+                // those blanks changes Dataview task text and lineCount.
+                let item_end = body[..range.end].trim_end().len().max(range.start);
+                let mut item = json!({"position":position(range.start,item_end),"parent":parent});
                 if let Some(captures) = lines.get(start_line).and_then(|l| task_marker.captures(l))
                 {
                     item["task"] =

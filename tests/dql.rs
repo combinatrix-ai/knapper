@@ -444,3 +444,102 @@ fn copied_binary_executes_dql_without_node_or_sidecars() {
     assert_eq!(result["values"], json!([[1631]]));
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
+
+fn pkm_fixture() -> TempDir {
+    fn copy(source: &std::path::Path, destination: &std::path::Path) {
+        fs::create_dir_all(destination).unwrap();
+        for entry in fs::read_dir(source).unwrap() {
+            let entry = entry.unwrap();
+            let target = destination.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy(&entry.path(), &target);
+            } else {
+                fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+    let vault = TempDir::new().unwrap();
+    copy(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pkm"),
+        vault.path(),
+    );
+    vault
+}
+
+#[test]
+fn extensible_pkm_vault_cases_match_committed_expectations() {
+    let vault = pkm_fixture();
+    let manifest: Value =
+        serde_json::from_str(&fs::read_to_string(vault.path().join("cases.json")).unwrap())
+            .unwrap();
+    assert_eq!(manifest["schemaVersion"], 1);
+    for case in manifest["cases"].as_array().unwrap() {
+        let actual = query(&vault, case["query"].as_str().unwrap(), &[]);
+        let expected = &case["expected"];
+        if let Some(fields) = case["taskFields"].as_array() {
+            let tasks: Vec<Value> = actual["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|task| {
+                    let mut selected = serde_json::Map::new();
+                    for field in fields {
+                        let key = field.as_str().unwrap();
+                        selected.insert(key.to_owned(), task[key].clone());
+                    }
+                    Value::Object(selected)
+                })
+                .collect();
+            assert_eq!(
+                json!({"type":actual["type"],"tasks":tasks}),
+                *expected,
+                "{}",
+                case["id"]
+            );
+        } else {
+            for (key, value) in expected.as_object().unwrap() {
+                assert_eq!(&actual[key], value, "{}: {key}", case["id"]);
+            }
+        }
+    }
+}
+
+#[test]
+fn pkm_edits_are_visible_to_fresh_queries() {
+    let vault = pkm_fixture();
+    let todo = vault.path().join("Tasks/Todo.md");
+    let before = query(
+        &vault,
+        "TASK FROM \"Tasks\" WHERE !completed SORT line",
+        &[],
+    );
+    assert_eq!(before["tasks"].as_array().unwrap().len(), 3);
+    let contents = fs::read_to_string(&todo)
+        .unwrap()
+        .replace("- [ ] Draft outline", "- [x] Draft outline");
+    fs::write(&todo, contents).unwrap();
+    let after = query(
+        &vault,
+        "TASK FROM \"Tasks\" WHERE !completed SORT line",
+        &[],
+    );
+    assert_eq!(after["tasks"].as_array().unwrap().len(), 2);
+    fs::write(vault.path().join("Daily/2026-10-03.md"), "messages:: 9\n").unwrap();
+    assert_eq!(
+        query(
+            &vault,
+            "TABLE WITHOUT ID sum(rows.messages) FROM \"Daily\" GROUP BY true",
+            &[]
+        )["values"],
+        json!([[33]])
+    );
+    fs::remove_file(vault.path().join("Daily/2026-10-03.md")).unwrap();
+    assert_eq!(
+        query(
+            &vault,
+            "TABLE WITHOUT ID sum(rows.messages) FROM \"Daily\" GROUP BY true",
+            &[]
+        )["values"],
+        json!([[24]])
+    );
+}

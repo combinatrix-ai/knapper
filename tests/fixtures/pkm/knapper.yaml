@@ -1,0 +1,4 @@
+vault_path: .
+exclude: [Excluded]
+daily_notes:
+  folder: Daily

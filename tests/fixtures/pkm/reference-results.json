@@ -1,0 +1,551 @@
+{
+  "verifiedAt": "2026-10-03",
+  "knapperDataviewVersion": "0.5.70",
+  "upstreamCommit": "5ad0994ff384cbb797de382e7edff2388141b73a",
+  "baseline": {
+    "verifiedAt": "2026-10-03T05:48:29.762917+00:00",
+    "mode": "baseline",
+    "comparisons": [
+      {
+        "id": "reading-list",
+        "query": "TABLE WITHOUT ID file.name, rating, status FROM \"Books\" SORT rating DESC",
+        "knapper": {
+          "type": "table",
+          "values": [
+            [
+              "Field Guide",
+              5,
+              "finished"
+            ],
+            [
+              "Notebook",
+              3,
+              "reading"
+            ]
+          ]
+        },
+        "baselineEqual": true,
+        "obsidian": {
+          "type": "table",
+          "values": [
+            [
+              "Field Guide",
+              5,
+              "finished"
+            ],
+            [
+              "Notebook",
+              3,
+              "reading"
+            ]
+          ]
+        },
+        "liveEqual": true,
+        "passed": true
+      },
+      {
+        "id": "todo-status-and-priority",
+        "query": "TABLE WITHOUT ID t.text, t.status, t.completed, t.p FROM \"Tasks\" FLATTEN file.tasks AS t SORT t.line",
+        "knapper": {
+          "type": "table",
+          "values": [
+            [
+              "Draft outline [p:: 1] [due:: 2026-10-04]",
+              " ",
+              false,
+              1
+            ],
+            [
+              "Collect notes [completion:: 2026-10-02]",
+              "x",
+              true,
+              null
+            ],
+            [
+              "Review draft [p:: 2]",
+              "/",
+              false,
+              2
+            ],
+            [
+              "Prepare workspace [p:: 1] [completion:: 2026-10-01]",
+              "x",
+              true,
+              1
+            ],
+            [
+              "日本語のメモを整理 [p:: 3]",
+              " ",
+              false,
+              3
+            ]
+          ]
+        },
+        "baselineEqual": true,
+        "obsidian": {
+          "type": "table",
+          "values": [
+            [
+              "Draft outline [p:: 1] [due:: 2026-10-04]",
+              " ",
+              false,
+              1
+            ],
+            [
+              "Collect notes [completion:: 2026-10-02]",
+              "x",
+              true,
+              null
+            ],
+            [
+              "Review draft [p:: 2]",
+              "/",
+              false,
+              2
+            ],
+            [
+              "Prepare workspace [p:: 1] [completion:: 2026-10-01]",
+              "x",
+              true,
+              1
+            ],
+            [
+              "日本語のメモを整理 [p:: 3]",
+              " ",
+              false,
+              3
+            ]
+          ]
+        },
+        "liveEqual": true,
+        "passed": true
+      },
+      {
+        "id": "todo-due-date",
+        "query": "TABLE WITHOUT ID t.p, dateformat(t.due, \"yyyy-MM-dd\") FROM \"Tasks\" FLATTEN file.tasks AS t WHERE t.due",
+        "knapper": {
+          "type": "table",
+          "values": [
+            [
+              1,
+              "2026-10-04"
+            ]
+          ]
+        },
+        "baselineEqual": true,
+        "obsidian": {
+          "type": "table",
+          "values": [
+            [
+              1,
+              "2026-10-04"
+            ]
+          ]
+        },
+        "liveEqual": true,
+        "passed": true
+      },
+      {
+        "id": "daily-aggregate",
+        "query": "TABLE WITHOUT ID length(rows), sum(rows.messages) FROM \"Daily\" GROUP BY true",
+        "knapper": {
+          "type": "table",
+          "values": [
+            [
+              2,
+              24
+            ]
+          ]
+        },
+        "baselineEqual": true,
+        "obsidian": {
+          "type": "table",
+          "values": [
+            [
+              2,
+              24
+            ]
+          ]
+        },
+        "liveEqual": true,
+        "passed": true
+      },
+      {
+        "id": "author-link",
+        "query": "TABLE WITHOUT ID file.name, meta(author).path FROM \"Books\" SORT file.name",
+        "knapper": {
+          "type": "table",
+          "values": [
+            [
+              "Field Guide",
+              "People/Example Author.md"
+            ],
+            [
+              "Notebook",
+              "People/Example Author.md"
+            ]
+          ]
+        },
+        "baselineEqual": true,
+        "obsidian": {
+          "type": "table",
+          "values": [
+            [
+              "Field Guide",
+              "People/Example Author.md"
+            ],
+            [
+              "Notebook",
+              "People/Example Author.md"
+            ]
+          ]
+        },
+        "liveEqual": true,
+        "passed": true
+      },
+      {
+        "id": "bookmark-membership",
+        "query": "LIST WITHOUT ID file.path WHERE file.starred SORT file.path",
+        "knapper": {
+          "type": "list",
+          "values": [
+            "Books/Field Guide.md",
+            "Tasks/Todo.md"
+          ]
+        },
+        "baselineEqual": true,
+        "obsidian": {
+          "type": "list",
+          "values": [
+            "Books/Field Guide.md",
+            "Tasks/Todo.md"
+          ]
+        },
+        "liveEqual": true,
+        "passed": true
+      },
+      {
+        "id": "open-tasks",
+        "query": "TASK FROM \"Tasks\" WHERE !completed SORT line",
+        "knapper": {
+          "type": "task",
+          "tasks": [
+            {
+              "text": "Draft outline [p:: 1] [due:: 2026-10-04]",
+              "status": " ",
+              "completed": false
+            },
+            {
+              "text": "Review draft [p:: 2]",
+              "status": "/",
+              "completed": false
+            },
+            {
+              "text": "日本語のメモを整理 [p:: 3]",
+              "status": " ",
+              "completed": false
+            }
+          ]
+        },
+        "baselineEqual": true,
+        "obsidian": {
+          "type": "task",
+          "tasks": [
+            {
+              "text": "Draft outline [p:: 1] [due:: 2026-10-04]",
+              "status": " ",
+              "completed": false
+            },
+            {
+              "text": "Review draft [p:: 2]",
+              "status": "/",
+              "completed": false
+            },
+            {
+              "text": "日本語のメモを整理 [p:: 3]",
+              "status": " ",
+              "completed": false
+            }
+          ]
+        },
+        "liveEqual": true,
+        "passed": true
+      }
+    ],
+    "appVersion": "1.13.7 (installer 1.13.7)",
+    "dataviewVersion": "0.5.68"
+  },
+  "afterEdits": {
+    "operations": [
+      "task path=Tasks/Todo.md line=5 done",
+      "create path=Daily/2026-10-03.md content=messages:: 9",
+      "bookmark file=Books/Notebook.md"
+    ],
+    "watchPasses": 2,
+    "result": {
+      "verifiedAt": "2026-10-03T05:49:16.012104+00:00",
+      "mode": "live-parity",
+      "comparisons": [
+        {
+          "id": "reading-list",
+          "query": "TABLE WITHOUT ID file.name, rating, status FROM \"Books\" SORT rating DESC",
+          "knapper": {
+            "type": "table",
+            "values": [
+              [
+                "Field Guide",
+                5,
+                "finished"
+              ],
+              [
+                "Notebook",
+                3,
+                "reading"
+              ]
+            ]
+          },
+          "baselineEqual": true,
+          "obsidian": {
+            "type": "table",
+            "values": [
+              [
+                "Field Guide",
+                5,
+                "finished"
+              ],
+              [
+                "Notebook",
+                3,
+                "reading"
+              ]
+            ]
+          },
+          "liveEqual": true,
+          "passed": true
+        },
+        {
+          "id": "todo-status-and-priority",
+          "query": "TABLE WITHOUT ID t.text, t.status, t.completed, t.p FROM \"Tasks\" FLATTEN file.tasks AS t SORT t.line",
+          "knapper": {
+            "type": "table",
+            "values": [
+              [
+                "Draft outline [p:: 1] [due:: 2026-10-04]",
+                "x",
+                true,
+                1
+              ],
+              [
+                "Collect notes [completion:: 2026-10-02]",
+                "x",
+                true,
+                null
+              ],
+              [
+                "Review draft [p:: 2]",
+                "/",
+                false,
+                2
+              ],
+              [
+                "Prepare workspace [p:: 1] [completion:: 2026-10-01]",
+                "x",
+                true,
+                1
+              ],
+              [
+                "日本語のメモを整理 [p:: 3]",
+                " ",
+                false,
+                3
+              ]
+            ]
+          },
+          "baselineEqual": false,
+          "obsidian": {
+            "type": "table",
+            "values": [
+              [
+                "Draft outline [p:: 1] [due:: 2026-10-04]",
+                "x",
+                true,
+                1
+              ],
+              [
+                "Collect notes [completion:: 2026-10-02]",
+                "x",
+                true,
+                null
+              ],
+              [
+                "Review draft [p:: 2]",
+                "/",
+                false,
+                2
+              ],
+              [
+                "Prepare workspace [p:: 1] [completion:: 2026-10-01]",
+                "x",
+                true,
+                1
+              ],
+              [
+                "日本語のメモを整理 [p:: 3]",
+                " ",
+                false,
+                3
+              ]
+            ]
+          },
+          "liveEqual": true,
+          "passed": true
+        },
+        {
+          "id": "todo-due-date",
+          "query": "TABLE WITHOUT ID t.p, dateformat(t.due, \"yyyy-MM-dd\") FROM \"Tasks\" FLATTEN file.tasks AS t WHERE t.due",
+          "knapper": {
+            "type": "table",
+            "values": [
+              [
+                1,
+                "2026-10-04"
+              ]
+            ]
+          },
+          "baselineEqual": true,
+          "obsidian": {
+            "type": "table",
+            "values": [
+              [
+                1,
+                "2026-10-04"
+              ]
+            ]
+          },
+          "liveEqual": true,
+          "passed": true
+        },
+        {
+          "id": "daily-aggregate",
+          "query": "TABLE WITHOUT ID length(rows), sum(rows.messages) FROM \"Daily\" GROUP BY true",
+          "knapper": {
+            "type": "table",
+            "values": [
+              [
+                3,
+                33
+              ]
+            ]
+          },
+          "baselineEqual": false,
+          "obsidian": {
+            "type": "table",
+            "values": [
+              [
+                3,
+                33
+              ]
+            ]
+          },
+          "liveEqual": true,
+          "passed": true
+        },
+        {
+          "id": "author-link",
+          "query": "TABLE WITHOUT ID file.name, meta(author).path FROM \"Books\" SORT file.name",
+          "knapper": {
+            "type": "table",
+            "values": [
+              [
+                "Field Guide",
+                "People/Example Author.md"
+              ],
+              [
+                "Notebook",
+                "People/Example Author.md"
+              ]
+            ]
+          },
+          "baselineEqual": true,
+          "obsidian": {
+            "type": "table",
+            "values": [
+              [
+                "Field Guide",
+                "People/Example Author.md"
+              ],
+              [
+                "Notebook",
+                "People/Example Author.md"
+              ]
+            ]
+          },
+          "liveEqual": true,
+          "passed": true
+        },
+        {
+          "id": "bookmark-membership",
+          "query": "LIST WITHOUT ID file.path WHERE file.starred SORT file.path",
+          "knapper": {
+            "type": "list",
+            "values": [
+              "Books/Field Guide.md",
+              "Books/Notebook.md",
+              "Tasks/Todo.md"
+            ]
+          },
+          "baselineEqual": false,
+          "obsidian": {
+            "type": "list",
+            "values": [
+              "Books/Field Guide.md",
+              "Books/Notebook.md",
+              "Tasks/Todo.md"
+            ]
+          },
+          "liveEqual": true,
+          "passed": true
+        },
+        {
+          "id": "open-tasks",
+          "query": "TASK FROM \"Tasks\" WHERE !completed SORT line",
+          "knapper": {
+            "type": "task",
+            "tasks": [
+              {
+                "text": "Review draft [p:: 2]",
+                "status": "/",
+                "completed": false
+              },
+              {
+                "text": "日本語のメモを整理 [p:: 3]",
+                "status": " ",
+                "completed": false
+              }
+            ]
+          },
+          "baselineEqual": false,
+          "obsidian": {
+            "type": "task",
+            "tasks": [
+              {
+                "text": "Review draft [p:: 2]",
+                "status": "/",
+                "completed": false
+              },
+              {
+                "text": "日本語のメモを整理 [p:: 3]",
+                "status": " ",
+                "completed": false
+              }
+            ]
+          },
+          "liveEqual": true,
+          "passed": true
+        }
+      ],
+      "appVersion": "1.13.7 (installer 1.13.7)",
+      "dataviewVersion": "0.5.68"
+    }
+  }
+}

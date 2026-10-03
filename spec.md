@@ -143,7 +143,7 @@ is still an improvement target.
 
 1. All 18 upstream suites / 395 unchanged test cases pass under Node/Jest and the
    embedded QuickJS runtime. They primarily establish parser/expression behavior.
-2. Twenty-one synthetic end-to-end tests cover the metadata adapter, sources,
+2. Twenty-three synthetic end-to-end tests cover the metadata adapter, sources,
    dates/DST, task structure, grouping, errors, Japanese text, native bookmarks and standalone use.
 3. Ten full DQL queries are compared with a Node-native-Intl reference. Both
    runtimes use the same adapter, so this does not test Obsidian metadata parity.
@@ -197,6 +197,46 @@ setup and invocation are in the [fixture README](tests/fixtures/obsidian-bookmar
 Other registry entries remain at their stated verification level until tested
 through this workflow; native CLI observations for links/properties/tags/tasks
 are next coverage, not claims of already verified parity.
+
+## Extensible PKM fixture vault
+
+[tests/fixtures/pkm](tests/fixtures/pkm/README.md) is a committed synthetic
+PKM vault inspired by the MIT-licensed Dataview `test-vault` at the same pinned
+upstream commit. Its notes are newly written, with invented people/books and
+fixed daily counts/dates. The upstream notice and provenance are retained.
+`cases.json` maps each named query and independently reviewed expected result
+to a feature ID in this specification. Initially seven cases cover reading lists,
+nested/custom-status tasks, annotations/priorities/due dates, Japanese text,
+daily aggregates, typed-link paths and bookmark membership.
+
+Every relevant new plugin/metadata feature or discovered regression must extend
+this vault/case manifest or an explicitly focused sibling fixture. Update the
+expected results, live comparison evidence and this specification together; do
+not derive the answer key solely from knapper's current behavior. The fixture
+README is the extension contract and root AGENTS.md makes it a development rule.
+
+Ordinary CI runs the full case registry plus a task-completion/note-create/delete
+transition test. The [PKM runner](scripts/verify-pkm-vault.py) runs the same registry
+offline or through a running App's official CLI. `--watch` polls a disposable
+copy and checks live equality after edits, keeping baseline equality separately.
+It retries transient index disagreements for ten samples at 0.5s intervals,
+records a persistent difference and exits nonzero. It is an explicit local
+process, with optional bounded iterations; no daemon/scheduler is installed.
+It does not establish refresh latency or rendered-view parity. TASK cases
+compare their named `taskFields`, not every task metadata field.
+
+On 2026-10-03 all seven baseline queries agreed with Obsidian App/CLI 1.13.7 +
+Dataview 0.5.68 (embedded version 0.5.70). After CLI task completion, daily-note
+creation and bookmark addition, two watch passes also agreed. Incomplete tasks
+changed from three to two, daily aggregate from 24 to 33, and bookmark membership
+from two to three. Sanitized evidence and exact mutations are in
+[reference-results.json](tests/fixtures/pkm/reference-results.json).
+
+This comparison exposed a metadata gap: CommonMark item ranges included
+trailing blank lines, unlike Obsidian, altering task text and lineCount.
+The DQL adapter now ends an item at its last content line; this fixture preserves
+the observed blank-separator/Japanese regression. Complex quoted/callout lists
+and same-version plugin comparisons remain outside this evidence.
 
 ## Core Bookmarks contract
 

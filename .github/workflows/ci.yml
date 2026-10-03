@@ -50,6 +50,10 @@ jobs:
       - name: Test
         run: cargo test
 
+      - name: Synthetic PKM case registry
+        run: |
+          python3 scripts/verify-pkm-vault.py --knapper "$PWD/target/debug/knapper" --vault "$PWD/tests/fixtures/pkm" --output "$RUNNER_TEMP/pkm-baseline.json"
+
       - name: Compare embedded DQL with Node native Intl
         env:
           KNAPPER_DQL_NODE: node

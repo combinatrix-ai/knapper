@@ -110,3 +110,12 @@ when copying or distributing the bundle. `knapper dql --licenses` prints the
 notices embedded in the binary even outside a vault. Build and test tools are
 not embedded in the release executable. Cargo dependencies retain their own
 license obligations; added runtime notices are in `RUST_NOTICES.txt`.
+
+## Extending the compatibility corpus
+
+The synthetic [PKM fixture vault](../tests/fixtures/pkm/README.md) contains
+Dataview-inspired reading, todo, daily and bookmark cases. Its `cases.json`
+registry runs in Rust CI and via `scripts/verify-pkm-vault.py`; the latter can
+compare a running isolated Obsidian App through the official CLI and watch
+manual edits to a disposable copy. Follow the fixture's extension contract
+when adding relevant plugin/metadata behavior or reproducing an adapter gap.
