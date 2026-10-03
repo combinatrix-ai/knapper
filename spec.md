@@ -48,7 +48,7 @@ an upstream test count alone is not evidence of complete compatibility.
 | CORE-PROPERTIES | YAML properties and note aliases | Native frontmatter/query/graph commands | Implemented subset | Native parser/link tests and Obsidian fixture |
 | CORE-TAGS | Body/YAML tags, nested and Unicode tags | Native tag/query commands | Implemented subset | Obsidian fixture and parser tests |
 | CORE-DAILY | Daily notes and Core Templates | `daily` | Implemented subset | `tests/daily.rs` |
-| CORE-BOOKMARKS | Core Bookmarks plugin | DQL `file.starred` | Implemented file-membership subset; cold-snapshot contract | Four adapter tests and actual-Obsidian enabled/disabled-start comparison |
+| CORE-BOOKMARKS | Core Bookmarks plugin | DQL `file.starred` | Implemented file-membership subset; cold-snapshot contract | Five adapter/reference tests and actual-Obsidian enabled/disabled-start comparison |
 | DV-FIELDS | Dataview inline fields | Native context/query; upstream importer in DQL | Implemented subsets with different adapters | Parser tests, `tests/dql.rs` |
 | DV-DQL | Dataview query language and expression functions | `dql` | Implemented pinned engine | 395 upstream tests in Node and QuickJS |
 | DV-INDEX | Obsidian metadata supplied to Dataview | `dql` | Partial | `tests/dql.rs`; actual Obsidian comparison described below |
@@ -143,7 +143,7 @@ is still an improvement target.
 
 1. All 18 upstream suites / 395 unchanged test cases pass under Node/Jest and the
    embedded QuickJS runtime. They primarily establish parser/expression behavior.
-2. Twenty synthetic end-to-end tests cover the metadata adapter, sources,
+2. Twenty-one synthetic end-to-end tests cover the metadata adapter, sources,
    dates/DST, task structure, grouping, errors, Japanese text, native bookmarks and standalone use.
 3. Ten full DQL queries are compared with a Node-native-Intl reference. Both
    runtimes use the same adapter, so this does not test Obsidian metadata parity.
@@ -202,13 +202,14 @@ already disabled returned false, matching knapper. This warm-disable difference
 is explicit; compatibility does not include reproducing transient retained data.
 Legacy migration-file state is not imported.
 
-Four end-to-end tests cover nested groups, subpaths, duplicate/irrelevant items,
+Five end-to-end tests cover nested groups, subpaths, duplicate/irrelevant items,
 exclusions, both plugin-state formats/defaults, missing/malformed data, custom
 config directories and escaped symlinks. The synthetic
 [actual-Obsidian fixture](tests/fixtures/obsidian-bookmarks/README.md) and
 [recorded comparison](tests/fixtures/obsidian-bookmarks/reference-results.json)
 cover table/list queries with Bookmarks enabled and disabled at startup. All four
-results agree. The warm-disable observation is recorded separately as a known
+results agree and a CI regression test reproduces these recorded Obsidian
+results without requiring the desktop app. The warm-disable observation is recorded separately as a known
 difference. These comparisons used Dataview 0.5.68 versus the embedded 0.5.70;
 same-version lifecycle comparisons remain a future verification improvement.
 

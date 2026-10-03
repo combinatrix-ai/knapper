@@ -213,6 +213,47 @@ fn bookmark_settings_symlinks_cannot_escape_the_vault() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("inside the vault"));
 }
+
+#[test]
+fn committed_actual_obsidian_bookmark_results_are_reproduced() {
+    fn copy_directory(source: &std::path::Path, destination: &std::path::Path) {
+        fs::create_dir_all(destination).unwrap();
+        for entry in fs::read_dir(source).unwrap() {
+            let entry = entry.unwrap();
+            let target = destination.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_directory(&entry.path(), &target);
+            } else {
+                fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+    let source =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/obsidian-bookmarks");
+    let reference: Value =
+        serde_json::from_str(&fs::read_to_string(source.join("reference-results.json")).unwrap())
+            .unwrap();
+    let vault = TempDir::new().unwrap();
+    copy_directory(&source, vault.path());
+    for state in reference["states"].as_array().unwrap() {
+        // A fresh headless snapshot intentionally excludes retained live-plugin
+        // data. The actual warm-disable difference is preserved in spec.md.
+        if state["lifecycle"] == "warm-disable-after-refresh" {
+            continue;
+        }
+        fs::write(
+            vault.path().join(".obsidian/core-plugins.json"),
+            json!({"bookmarks":state["enabled"]}).to_string(),
+        )
+        .unwrap();
+        for expected in state["rows"].as_array().unwrap() {
+            let actual = query(&vault, expected["query"].as_str().unwrap(), &[]);
+            assert_eq!(actual["type"], expected["type"]);
+            assert_eq!(actual["headers"], expected["headers"]);
+            assert_eq!(actual["values"], expected["values"]);
+        }
+    }
+}
 #[test]
 fn flatten_typed_inline_links_and_nested_tags() {
     let v = fixture();
