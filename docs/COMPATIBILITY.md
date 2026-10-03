@@ -3,7 +3,7 @@
 What knapper understands, ecosystem by ecosystem and convention by
 convention. ✅ works · ⚠️ partial · ❌ not supported.
 
-Every ✅ here is exercised by a fixture vault in
+The ecosystem fixtures here are exercised by fixture vaults in
 [`tests/fixtures/flavors/`](../tests/fixtures/flavors/) and pinned by
 `tests/flavors.rs`. Nothing is listed on the strength of it probably
 being fine.
@@ -12,50 +12,10 @@ being fine.
 
 ## Obsidian
 
-### Core
-
-- ✅ **Wikilinks** — `[[Note]]`, `[[folder/Note]]`
-  - ✅ Aliases, `[[Note|display text]]` — the alias is display only, the link resolves to `Note`
-  - ✅ Heading links, `[[Note#Heading]]` — resolves to the file; the heading is not addressed
-  - ✅ Block links, `[[Note#^block-id]]` — resolves to the file; the block is not addressed
-  - ✅ Embeds, `![[Note]]` — counted as an outgoing link, matching Obsidian's graph
-- ✅ **Markdown links** — `[text](folder/Note.md)`, including `#anchors`, `%20` encoding, and `./` prefixes
-  - ✅ External URLs and images are correctly ignored
-- ✅ **Properties / YAML frontmatter** — read and written by `knapper frontmatter`
-  - ✅ **Link-valued properties are followed** — `related: "[[Other]]"` reaches the link graph, so it shows up in `backlinks` and keeps the target out of `orphans`. Scalars and lists both work. This is the portable way to write a typed relation.
-  - ✅ **Aliases** — `aliases: ["三井物産"]` makes `[[三井物産]]` resolve to the declaring note
-- ✅ **Tags** — `#tag`, nested `#parent/child`, Unicode `#日本語`, and frontmatter `tags:`
-  - ✅ Purely numeric tokens such as `#8/18` are correctly not tags
-- ✅ **Callouts** and **footnotes** — links inside them count, as they should
-- ✅ **Code and comments are excluded** — a `[[link]]` or `#tag` inside a fenced block, an inline span, or a `%%comment%%` is not a reference and is not counted
-- ✅ **Daily notes** — `knapper daily`, with template expansion
-- ✅ **Templates (core plugin)** — `{{date}}`, `{{time}}`, `{{title}}`, `{{date:YYYY/MM/DD}}`
-
-### Tasks (community plugin)
-
-- ✅ **Checkboxes** — `- [ ]`, `- [x]`, `- [/]` wip, `- [-]` cancelled, plus custom statuses from config
-- ✅ **Due** — `📅 2026-08-01`, and `due:2026-08-01` / `@due(2026-08-01)`
-- ✅ **Done** — `✅ 2026-07-20`, and `done:` / `@done(...)`
-- ✅ **Created** — `➕ 2026-07-01`, and `created:` / `@created(...)`
-- ✅ **Recurrence** — `🔁 every 2 weeks`
-- ✅ **Scheduled** — `⏳ 2026-08-01`, and `scheduled:2026-08-01`
-- ✅ **Start** — `🛫 2026-08-01`, and `start:2026-08-01`
-- ✅ **Priority** — `⏫` high, `🔼` medium, `🔽` low, now read as well as written
-
-### Dataview (community plugin)
-
-- ✅ **Inline fields** — all three forms: `[key:: value]`, `(key:: value)`, and bare `key:: value` at the start of a line
-  - Read into `inline_fields`, reported by `knapper context`, and kept apart from frontmatter because knapper reads them but does not write them
-  - ✅ **Typed links** — `[supports:: [[Some Note]]]` reaches the link graph, so it shows up in `backlinks`, and the field is filterable with `knapper query --where supports~X`
-  - ⚠️ A value that is a plain path rather than a wikilink, `[source:: notes/x.md]`, is kept as text and not resolved. Dataview does not resolve those either.
-  - Bare fields require a space after `::`, so `std::cout` in prose is not mistaken for one; code and comments are masked first
-- ❌ **Query blocks** — `dataview` code fences are not evaluated, and are not intended to be
-
-### Templater (community plugin)
-
-- ✅ `<% tp.date.now("YYYY-MM-DD") %>`, including day offsets
-- ✅ `<% tp.file.title %>`
-- ⚠️ Anything beyond date and title helpers is left untouched rather than expanded
+The canonical feature contracts, plugin versions, evidence, differences and
+planned adapters are in [spec.md](../spec.md). This includes native links,
+properties, daily notes, Tasks/Templater conventions and the embedded Dataview
+DQL engine. Each has its own scope; none is a blanket full-Obsidian claim.
 
 ---
 

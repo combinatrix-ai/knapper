@@ -16,7 +16,7 @@ knapper rename "thesis" "dissertation"   # rename it and update links
 knapper tasks --overdue --format json    # what needs attention?
 ```
 
-[Embedded Dataview DQL](dql/README.md) · [CLI manual](docs/CLI.md) · [Compatibility](docs/COMPATIBILITY.md) ·
+[Obsidian compatibility spec](spec.md) · [Embedded Dataview DQL](dql/README.md) · [CLI manual](docs/CLI.md) · [Compatibility](docs/COMPATIBILITY.md) ·
 [Releases](https://github.com/combinatrix-ai/knapper/releases)
 
 > A *knapper* is someone who strikes obsidian and flint into usable blades.
@@ -90,7 +90,7 @@ knapper move Projects/thesis Archive/thesis --dry-run
 
 | Ecosystem | Support | What knapper understands |
 |---|---|---|
-| **Obsidian** | ✅ | Wikilinks, markdown links, properties, aliases, tags, daily notes, and the Tasks, Dataview, and Templater conventions |
+| **Obsidian** | Feature subsets | Native links, properties, tags, daily notes, Tasks/Templater conventions and embedded Dataview DQL; see [spec.md](spec.md) for boundaries |
 | **Foam** | ✅ | Wikilinks and markdown links, YAML frontmatter, and tags |
 | **Dendron** | ✅ links | Dot-hierarchy filenames and links with or without `.md`; frontmatter IDs are read but do not resolve links |
 | **Zettelkasten** | ✅ | ID-prefixed filenames and bare wikilinks |

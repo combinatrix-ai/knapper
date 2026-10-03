@@ -34,6 +34,7 @@ currently structured JSON.
 ## Compatibility boundary
 
 This is a **headless DQL integration**, not a claim of full Obsidian compatibility.
+The canonical feature contracts and verification status are in [spec.md](../spec.md).
 
 - DQL query/evaluation semantics are pinned to the vendored version, including
   its quirks. Upstream updates require regenerated bundles and reference tests.
