@@ -180,6 +180,11 @@ explains item types and groups. The pinned Dataview `StarredCache.fetch` in
 - Excluded files do not become DQL pages merely because they are bookmarked.
 - Queries do not write/reorder bookmarks or change plugin state.
 
+Native `rename`/`move` currently do not rewrite saved bookmark paths. After a
+CLI refactor, a stored old path can stop marking the renamed/moved page until
+bookmark data is updated separately. Keeping bookmark paths intact during
+refactoring is a separate, unimplemented mutation feature.
+
 The settings-file root must have an `items` array. Group child arrays and file
 paths are validated; unknown item types are ignored rather than treated as files.
 Enabled malformed input fails with a clear error. A missing bookmark file yields
@@ -234,6 +239,7 @@ recognizing its installation is not executing it or claiming compatibility.
 ## Next compatibility work
 
 - Same-version actual-Obsidian bookmark checks and additional saved-state edge cases.
+- Preserve native bookmark paths during explicit note/directory refactoring.
 - Actual-Obsidian fixtures for ambiguous/case/alias link resolution and complex
   task/list/callout metadata.
 - Explicitly scoped configuration import for requested plugins, beyond the
