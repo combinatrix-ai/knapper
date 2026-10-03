@@ -98,3 +98,15 @@ Version mismatch, wrong vault, plugin absence and comparison differences fail.
 observed numeric text-order difference: App sorts item2 before item10; QuickJS
 currently sorts item10 first. This is a known gap, not one of the 18 matching cases.
 The live runner reports it separately and requires both recorded orders to agree.
+
+## Daily weight lint case
+
+`Diary/` adds four synthetic journal entries: YAML weight, inline weight, missing
+weight and explicit null. `daily-weight-missing` in `cases.json` expects the last
+two paths; `knapper.yaml` uses the equivalent file-link LIST as a named lint rule.
+Run `knapper lint --check dataview:daily-weight --format json` to replay it.
+The registry now has eight DQL cases.
+`daily-weight-reference.json` records the App 1.13.7/official CLI comparison,
+including exact configured file-link LIST and the path LIST case. Dataview assets
+came from release tag 0.5.70; the published manifest/API report 0.5.68. Both IDs and
+the asset checksum are retained. CI replays these synthetic expected paths.

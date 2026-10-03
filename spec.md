@@ -52,6 +52,7 @@ an upstream test count alone is not evidence of complete compatibility.
 | DV-FIELDS | Dataview inline fields | Native context/query; upstream importer in DQL | Implemented subsets with different adapters | Parser tests, `tests/dql.rs` |
 | DV-DQL | Dataview query language and expression functions | `dql` | Implemented pinned engine | 395 upstream tests in Node and QuickJS |
 | DV-INDEX | Obsidian metadata supplied to Dataview | `dql` | Partial | `tests/dql.rs`; actual Obsidian comparison described below |
+| DV-LINT | DQL selects note convention violations | `lint`, `lint.dataview` | Implemented LIST subset | Daily weight fixture, lint integration tests, actual App/CLI reference |
 | DV-RENDER | Query-block and inline-query rendering | None | Unsupported | No rendering adapter |
 | DV-JS | DataviewJS and Obsidian plugin API | None | Unsupported | Host I/O and arbitrary-JS checks in `tests/dql.rs` |
 | TASKS-DATA | Tasks checkbox/date/priority/recurrence conventions | Native `tasks` commands | Implemented subset | Obsidian fixture and task tests |
@@ -443,3 +444,62 @@ fixture copy opened in an isolated profile. It checks vault identity and exact
 plugin versions, and requires `--allow-fixture-writes` because Linter/Capture probes
 prepare/modify synthetic files. Tasks renderer child access is a pinned test probe,
 not a public plugin API contract. Normal user Vault settings are never needed.
+
+## Dataview-backed lint rules
+
+`lint.dataview` in `knapper.yaml` maps lowercase rule names (`[a-z][a-z0-9-]*`)
+to required nonblank `query` and `message` strings, optional `enabled` (default
+true) and `severity` (`error` by default, `warning` or `info`). Unknown keys and
+invalid values fail configuration loading. This is a native lint adapter around
+the existing pinned Dataview 0.5.70 DQL engine, not an Obsidian Linter rule.
+
+```yaml
+lint:
+  dataview:
+    daily-weight:
+      query: 'LIST FROM "Diary" WHERE weight = null'
+      message: 'Record weight in every journal entry.'
+```
+
+The query selects violations. YAML and Dataview inline fields are indexed by the
+DQL importer; null and missing `weight` match this example, while zero does not.
+Use `typeof(weight) != "number"` for a numeric requirement instead. This checks
+existing notes: a day with no journal file is not detected. Queries may use the
+DQL expression language, but cannot execute DataviewJS or access host I/O.
+
+Plain `lint` runs enabled rules alongside built-in checks. `--check dataview`
+runs every configured DQL rule; `--check dataview:NAME` runs a named rule. Explicit
+selection overrides `enabled: false`, following the built-in rule convention.
+Built-in `--check` selections do not implicitly run DQL. Names are checked before
+file selection; an empty valid selection returns zero without evaluating rules.
+
+Only LIST results are accepted: `LIST FROM ...` returns file links, and `LIST
+WITHOUT ID file.path ...` returns exact vault-relative paths. Each row must name
+an indexed in-scope note. Scalar displays, list-pair widgets, aggregate group IDs,
+unknown paths and other query result types fail rather than becoming a clean
+report. TABLE/TASK/CALENDAR-to-lint mapping is unsupported. Duplicate note paths
+are reported once per rule, sorted by rule name then path. The DQL engine's
+existing metadata limitations still apply.
+
+All active rules share one fresh whole-vault snapshot, honoring global exclusions.
+`lint FILE...` and `--diff` filter reported paths after query execution, preserving
+cross-note and aggregate inputs. No origin note is supplied; timezone is the host
+IANA timezone, falling back to UTC. Rules use `.obsidian` for the existing cold
+Bookmarks adapter. Each query has a 256 MiB / 10 second runtime limit. Parse,
+execution, partial-row diagnostics and invalid output errors fail the command;
+there is no successful JSON report on evaluation failure. Rules never write notes.
+
+JSON issues have `type: "dataview"`, `rule`, `file`, `detail` (the configured
+message), and `severity`. `summary.dataview` counts DQL issues and
+`summary.total_issues` includes them. Any severity makes findings exit 1; zero
+findings exits 0. Text output includes the named rule and message.
+
+`tests/lint.rs` verifies daily YAML/inline/null/zero behavior, explicit selection,
+disabled rules, deduplication, cross-note scope and fail-closed validation.
+The synthetic PKM `daily-weight-missing` DQL case independently expects two
+missing-weight notes. `daily-weight-reference.json` records actual Obsidian 1.13.7
++ official CLI results for both the configured file-link LIST and path LIST.
+All eight PKM cases matched live. Public assets were downloaded from official
+Dataview release tag 0.5.70; its manifest/API report 0.5.68, so the reference
+records both identifiers and the main.js SHA-256 rather than claiming identical
+reported versions. CI replays the saved paths, not a live desktop run.

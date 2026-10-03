@@ -2,3 +2,8 @@ vault_path: .
 exclude: [Excluded]
 daily_notes:
   folder: Daily
+lint:
+  dataview:
+    daily-weight:
+      query: 'LIST FROM "Diary" WHERE weight = null'
+      message: 'Record weight in every journal entry.'

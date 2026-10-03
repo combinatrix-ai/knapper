@@ -1,0 +1,37 @@
+{
+  "verifiedAt": "2026-10-03T14:35:29.826446+00:00",
+  "appVersion": "1.13.7 (installer 1.13.7)",
+  "dataviewManifestVersion": "0.5.68",
+  "dataviewReleaseTag": "0.5.70",
+  "releaseMainSha256": "6bb1cf7010afad830e73575fca0e2bfbd3279c562e3d9d24f2d2f45161eb7d00",
+  "provenance": "Official GitHub release 0.5.70 assets; manifest and API report 0.5.68. Synthetic isolated vault; official Obsidian CLI api.query comparison.",
+  "query": "LIST FROM \"Diary\" WHERE weight = null",
+  "obsidian": {
+    "type": "list",
+    "paths": [
+      "Diary/2026-10-03.md",
+      "Diary/2026-10-04.md"
+    ]
+  },
+  "case": {
+    "id": "daily-weight-missing",
+    "query": "LIST WITHOUT ID file.path FROM \"Diary\" WHERE weight = null SORT file.path",
+    "knapper": {
+      "type": "list",
+      "values": [
+        "Diary/2026-10-03.md",
+        "Diary/2026-10-04.md"
+      ]
+    },
+    "baselineEqual": true,
+    "obsidian": {
+      "type": "list",
+      "values": [
+        "Diary/2026-10-03.md",
+        "Diary/2026-10-04.md"
+      ]
+    },
+    "liveEqual": true,
+    "passed": true
+  }
+}

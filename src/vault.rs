@@ -146,6 +146,14 @@ pub struct StatusOverride {
 }
 
 #[derive(Debug, Clone)]
+pub struct DataviewLintRule {
+    pub query: String,
+    pub message: String,
+    pub enabled: bool,
+    pub severity: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct Config {
     pub vault_path: PathBuf,
     pub template_engine: String,
@@ -154,6 +162,7 @@ pub struct Config {
     pub ignore_links: Vec<String>,
     pub lint_rules: std::collections::BTreeMap<String, LintRuleConfig>,
     pub lint_paths: Vec<LintPathRule>,
+    pub lint_dataview: std::collections::BTreeMap<String, DataviewLintRule>,
     pub daily_folder: String,
     /// The template a daily note is created from, exactly as the vault wrote
     /// it. `None` means the vault named none: only then is a bare dated note
@@ -177,6 +186,7 @@ impl Default for Config {
             ignore_links: Vec::new(),
             lint_rules: default_lint_rules(),
             lint_paths: Vec::new(),
+            lint_dataview: Default::default(),
             daily_folder: "Daily".into(),
             daily_template: None,
             daily_format: "YYYY-MM-DD".into(),
@@ -229,6 +239,7 @@ enum Shape {
     /// The ordered path-rule DSL has check-specific fields, so it has a
     /// dedicated validator instead of pretending to be a generic mapping.
     LintPaths,
+    DataviewLint,
 }
 
 /// The engines `templater::expand` actually implements.
@@ -269,6 +280,7 @@ const LINT_RULE: &[(&str, Shape)] = &[
 const LINT: &[(&str, Shape)] = &[
     ("rules", Shape::NamedFixed(LINT_RULE_NAMES, LINT_RULE)),
     ("paths", Shape::LintPaths),
+    ("dataview", Shape::DataviewLint),
 ];
 
 const SETTINGS: &[(&str, Shape)] = &[
@@ -448,6 +460,34 @@ fn check_value(path: &str, value: &serde_yaml::Value, shape: &Shape) -> Result<(
             Ok(())
         }
         Shape::LintPaths => validate_lint_paths(path, value),
+        Shape::DataviewLint => {
+            const FIELDS: &[(&str, Shape)] = &[
+                ("query", Shape::Text(None)),
+                ("message", Shape::Text(None)),
+                ("enabled", Shape::Bool),
+                ("severity", Shape::Text(Some(&["error", "warning", "info"]))),
+            ];
+            check_value(path, value, &Shape::Named(FIELDS))?;
+            let names = Regex::new(r"^[a-z][a-z0-9-]*$")?;
+            for (name, entry) in value.as_mapping().unwrap() {
+                let name = name.as_str().unwrap();
+                if !names.is_match(name) {
+                    return Err(anyhow!(
+                        "`{path}.{name}` must use a lowercase rule name (letters, digits, hyphens)"
+                    ));
+                }
+                for field in ["query", "message"] {
+                    if entry
+                        .get(field)
+                        .and_then(|v| v.as_str())
+                        .is_none_or(|v| v.trim().is_empty())
+                    {
+                        return Err(anyhow!("`{path}.{name}.{field}` must be a nonempty string"));
+                    }
+                }
+            }
+            Ok(())
+        }
     }
 }
 
@@ -1141,6 +1181,30 @@ pub fn config_from(raw: &str) -> Result<Config> {
         }
     }
     let lint_paths = parse_lint_paths(&meta)?;
+    let mut lint_dataview = std::collections::BTreeMap::new();
+    if let Some(rules) = get("lint")
+        .and_then(|v| v.get("dataview"))
+        .and_then(|v| v.as_mapping())
+    {
+        for (name, entry) in rules {
+            lint_dataview.insert(
+                name.as_str().unwrap().to_string(),
+                DataviewLintRule {
+                    query: entry["query"].as_str().unwrap().to_string(),
+                    message: entry["message"].as_str().unwrap().to_string(),
+                    enabled: entry
+                        .get("enabled")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true),
+                    severity: entry
+                        .get("severity")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("error")
+                        .to_string(),
+                },
+            );
+        }
+    }
 
     let mut tasks_statuses = std::collections::BTreeMap::new();
     if let Some(map) = tasks_get("statuses").and_then(|v| v.as_mapping()) {
@@ -1179,6 +1243,7 @@ pub fn config_from(raw: &str) -> Result<Config> {
         ignore_links: as_string_list(get("ignore_links")),
         lint_rules,
         lint_paths,
+        lint_dataview,
         daily_folder: daily_get("folder", "Daily"),
         daily_template: daily_raw("template"),
         daily_format: daily_get("format", "YYYY-MM-DD"),

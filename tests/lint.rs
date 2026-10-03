@@ -28,6 +28,7 @@ impl Vault {
     fn run(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_knapper"))
             .args(args)
+            .env("KNAPPER_NO_UPDATE_CHECK", "1")
             .current_dir(self.root.path())
             .output()
             .unwrap()
@@ -901,5 +902,257 @@ fn broken_links_all_overrides_global_disablement() {
             .unwrap()
             .len(),
         1
+    );
+}
+
+const WEIGHT_RULE: &str = "lint:\n  dataview:\n    daily-weight:\n      query: 'LIST FROM \"Diary\" WHERE weight = null'\n      message: '日記には体重を記録してください'\n";
+
+#[test]
+fn dataview_weight_rule_reads_yaml_and_inline_fields_and_only_reports_missing() {
+    let vault = Vault::new(
+        WEIGHT_RULE,
+        &[
+            (
+                "Diary/2026-10-01.md",
+                "---\nweight: 65.2\n---\nDaily entry\n",
+            ),
+            ("Diary/2026-10-02.md", "Daily entry\nweight:: 65.1\n"),
+            ("Diary/2026-10-03.md", "Daily entry without weight\n"),
+            (
+                "Diary/2026-10-04.md",
+                "---\nweight: null\n---\nDaily entry\n",
+            ),
+            ("Diary/2026-10-05.md", "weight:: 0\n"),
+            ("Other.md", "No weight here either\n"),
+        ],
+    );
+    let report = vault.json(&["lint", "--check", "dataview", "--format", "json"]);
+    assert_eq!(report["summary"]["dataview"], 2);
+    assert_eq!(
+        report["issues"][0],
+        serde_json::json!({"type":"dataview","rule":"daily-weight","file":"Diary/2026-10-03.md","detail":"日記には体重を記録してください","severity":"error"})
+    );
+    assert_eq!(report["issues"][1]["file"], "Diary/2026-10-04.md");
+    let plain = vault.json(&["lint", "--format", "json"]);
+    assert_eq!(plain["summary"]["dataview"], 2);
+    let clean = vault.json(&[
+        "lint",
+        "Diary/2026-10-02.md",
+        "--check",
+        "dataview:daily-weight",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(clean["summary"]["total_issues"], 0);
+    let text = vault.run(&["lint", "--check", "dataview:daily-weight"]);
+    assert_eq!(text.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&text.stdout).contains("[dataview:daily-weight]"));
+}
+
+#[test]
+fn dataview_selection_does_not_change_query_input_and_deduplicates_rows() {
+    let vault = Vault::new("", &[]);
+    // Use a cross-note expression: the selected note sees another indexed note.
+    fs::write(vault.root.path().join("knapper.yaml"), "vault_path: .\nexclude: [Excluded]\nlint:\n  dataview:\n    cross-note:\n      query: 'LIST WITHOUT ID file.path FROM \"Diary\" FLATTEN [1, 2] AS n WHERE [[Other]].required = true'\n      message: required\n").unwrap();
+    fs::create_dir_all(vault.root.path().join("Diary")).unwrap();
+    fs::write(vault.root.path().join("Diary/One.md"), "Daily entry\n").unwrap();
+    fs::write(vault.root.path().join("Diary/Two.md"), "Daily entry\n").unwrap();
+    fs::write(
+        vault.root.path().join("Other.md"),
+        "---\nrequired: true\n---\nOther entry\n",
+    )
+    .unwrap();
+    let report = vault.json(&[
+        "lint",
+        "Diary/One.md",
+        "--check",
+        "dataview",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(report["summary"]["dataview"], 1);
+    assert_eq!(report["issues"][0]["file"], "Diary/One.md");
+}
+
+#[test]
+fn disabled_dataview_rules_explicit_override_and_builtin_isolation() {
+    let vault = Vault::new(
+        &WEIGHT_RULE.replace(
+            "      message:",
+            "      enabled: false\n      severity: warning\n      message:",
+        ),
+        &[("Diary/One.md", "Daily entry\n")],
+    );
+    assert_eq!(
+        vault.json(&["lint", "--format", "json"])["summary"]["dataview"],
+        0
+    );
+    let report = vault.json(&[
+        "lint",
+        "--check",
+        "dataview:daily-weight",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(report["issues"][0]["severity"], "warning");
+    assert!(
+        vault.json(&["lint", "--check", "empty", "--format", "json"])["summary"]
+            .get("dataview")
+            .is_none()
+    );
+    assert!(!vault
+        .run(&["lint", "--check", "dataview:missing"])
+        .status
+        .success());
+}
+
+#[test]
+fn dataview_invalid_config_queries_and_rows_fail_closed() {
+    for config in [
+        "lint:\n  dataview:\n    bad: {message: required}\n",
+        "lint:\n  dataview:\n    bad: {query: LIST, message: ' '}\n",
+        "lint:\n  dataview:\n    Bad: {query: LIST, message: required}\n",
+        "lint:\n  dataview:\n    bad: {query: LIST, message: required, severity: fatal}\n",
+        "lint:\n  dataview:\n    bad: {query: LIST, message: required, typo: true}\n",
+    ] {
+        let vault = Vault::new(config, &[("Diary/One.md", "Daily entry\n")]);
+        assert!(
+            !vault.run(&["lint", "--check", "dataview"]).status.success(),
+            "{config}"
+        );
+    }
+    for query in [
+        "LIST WHERE (",
+        "TABLE file.path WHERE false",
+        "TASK WHERE false",
+        "LIST WITHOUT ID 42",
+        "LIST WITHOUT ID \"../outside.md\"",
+        "LIST WITHOUT ID file.name",
+        "LIST weight",
+        "LIST WHERE choice(file.name = \"One\", false, unavailable())",
+    ] {
+        let config = format!(
+            "lint:\n  dataview:\n    bad:\n      query: '{query}'\n      message: required\n"
+        );
+        let vault = Vault::new(
+            &config,
+            &[
+                ("Diary/One.md", "Daily entry\n"),
+                ("Diary/Two.md", "Daily entry\n"),
+            ],
+        );
+        let output = vault.run(&["lint", "--check", "dataview", "--format", "json"]);
+        assert!(!output.status.success(), "query passed: {query}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("Dataview lint rule `bad`"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stdout.is_empty());
+    }
+}
+
+#[test]
+fn dataview_fixture_rule_matches_registered_expected_paths() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pkm");
+    let output = Command::new(env!("CARGO_BIN_EXE_knapper"))
+        .env("KNAPPER_NO_UPDATE_CHECK", "1")
+        .args([
+            "-v",
+            fixture.to_str().unwrap(),
+            "-c",
+            fixture.join("knapper.yaml").to_str().unwrap(),
+            "lint",
+            "--check",
+            "dataview:daily-weight",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let actual: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(fixture.join("cases.json")).unwrap()).unwrap();
+    let case = manifest["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "daily-weight-missing")
+        .unwrap();
+    let paths: Vec<_> = actual["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["file"].clone())
+        .collect();
+    assert_eq!(serde_json::json!(paths), case["expected"]["values"]);
+    let reference: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(fixture.join("daily-weight-reference.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(serde_json::json!(paths), reference["obsidian"]["paths"]);
+    assert_eq!(reference["case"]["passed"], true);
+
+    assert_eq!(actual["summary"]["total_issues"], 2);
+}
+
+#[test]
+fn dataview_global_exclusions_and_fresh_note_edits_are_respected() {
+    let config = format!("exclude: [Diary/archive]\n{WEIGHT_RULE}");
+    let vault = Vault::new(
+        &config,
+        &[
+            ("Diary/One.md", "Daily entry\n"),
+            ("Diary/archive/Old.md", "Daily entry\n"),
+            ("Diary/.hidden.md", "Daily entry\n"),
+        ],
+    );
+    let report = vault.json(&["lint", "--check", "dataview", "--format", "json"]);
+    assert_eq!(report["summary"]["dataview"], 1);
+    fs::write(
+        vault.root.path().join("Diary/One.md"),
+        "Daily entry\nweight:: 65.2\n",
+    )
+    .unwrap();
+    assert_eq!(
+        vault.json(&["lint", "--check", "dataview", "--format", "json"])["summary"]["dataview"],
+        0
+    );
+}
+
+#[test]
+fn dataview_git_diff_filters_reports_and_empty_selection_skips_queries() {
+    let vault = Vault::new(
+        WEIGHT_RULE,
+        &[
+            ("Diary/One.md", "Daily entry\n"),
+            ("Diary/Two.md", "Daily entry\n"),
+        ],
+    );
+    init_git(&vault);
+    git(&vault, &["add", "."]);
+    git(&vault, &["commit", "-qm", "initial"]);
+    assert_eq!(
+        vault.json(&["lint", "--diff", "--check", "dataview", "--format", "json"])["summary"]
+            ["total_issues"],
+        0
+    );
+    fs::write(vault.root.path().join("Diary/One.md"), "Edited entry\n").unwrap();
+    let report = vault.json(&["lint", "--diff", "--check", "dataview", "--format", "json"]);
+    assert_eq!(report["summary"]["dataview"], 1);
+    assert_eq!(report["issues"][0]["file"], "Diary/One.md");
+    let schema = vault.json(&["config", "schema"]);
+    assert!(schema["properties"]["lint"]["properties"]
+        .get("dataview")
+        .is_some());
+    assert_eq!(
+        schema["$defs"]["dataviewLintRule"]["required"],
+        serde_json::json!(["query", "message"])
     );
 }

@@ -51,6 +51,16 @@
             "headings": { "$ref": "#/$defs/lintRule" }
           }
         },
+        "dataview": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/dataviewLintRule"
+          },
+          "description": "Named DQL LIST queries selecting violating notes."
+        },
         "paths": {
           "type": "array",
           "description": "Ordered path-specific lint overrides. The last matching check wins.",
@@ -110,6 +120,39 @@
         { "type": "string" },
         { "type": "array", "items": { "type": "string" } }
       ]
+    },
+    "dataviewLintRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "query",
+        "message"
+      ],
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "default": "error"
+        }
+      }
     },
     "lintRule": {
       "type": "object",

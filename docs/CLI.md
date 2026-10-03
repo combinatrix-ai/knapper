@@ -159,7 +159,7 @@ key. These write commands have no dry-run flag.
 | [`knapper dql`](#knapper-dql) | Run pinned Dataview DQL; see [the DQL guide](../dql/README.md) and [Obsidian spec](../spec.md) |
 | [`knapper query`](#knapper-query) | Filter notes by frontmatter, inline fields and link counts |
 | [`knapper fields`](#knapper-fields) | List what `query` can filter on |
-| [`knapper lint`](#knapper-lint) | Vault health: `broken-links`, `orphans`, `duplicates`, `empty`, `frontmatter`, `headings` |
+| [`knapper lint`](#knapper-lint) | Vault health: `broken-links`, `orphans`, `duplicates`, `empty`, `frontmatter`, `headings`, configured Dataview rules |
 | [`knapper backlinks FILE`](#knapper-backlinks) | Incoming links to a file, or the notes carrying a `'#tag'` |
 | [`knapper links FILE`](#knapper-links) | Outgoing links from a file |
 | [`knapper orphans`](#knapper-orphans) | Notes no other note links to |
@@ -2091,3 +2091,33 @@ Formatting and capture preview the resulting note by default. `--apply` writes;
 `--create` explicitly permits a new capture note under an existing directory.
 Templates support `{{VALUE}}` and `{{CURSOR}}`; text input remains literal.
 See [spec.md](../spec.md) for the pinned versions and exact supported subsets.
+
+### Dataview lint rules
+
+Use DQL to select notes which violate a convention. For example, require weight
+in each existing daily journal (YAML `weight: 65.2` or body `weight:: 65.2`):
+
+```yaml
+lint:
+  dataview:
+    daily-weight:
+      query: 'LIST FROM "Diary" WHERE weight = null'
+      message: 'Record weight in every journal entry.'
+      severity: error
+      enabled: true
+```
+
+```sh
+knapper lint --check dataview
+knapper lint --check dataview:daily-weight --format json
+knapper lint Diary/2026-10-03.md --check dataview:daily-weight
+```
+
+Plain lint includes enabled DQL rules. An explicit check runs disabled rules too.
+Use `LIST FROM ...` or `LIST WITHOUT ID file.path ...`; returned notes are
+violations, deduplicated per rule. Other row shapes/result types fail. Queries
+always see the whole scoped vault; file/diff selection only filters the report.
+A missing daily file is not detected. Query errors, including partial row errors,
+fail the command. Any finding exits 1, even warning/info severity; clean exits 0.
+JSON issues include `type`, `rule`, `file`, `detail`, `severity`, with the DQL count
+in `summary.dataview`. See [the full contract](../spec.md#dataview-backed-lint-rules).

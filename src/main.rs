@@ -14,6 +14,7 @@ mod demote;
 mod dql;
 mod graph;
 mod links;
+mod lint_dataview;
 mod lint_selection;
 mod move_tree;
 mod note;
@@ -37,6 +38,22 @@ mod vault;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+
+fn parse_lint_check(value: &str) -> std::result::Result<String, String> {
+    if vault::LINT_RULE_NAMES.contains(&value)
+        || value == "dataview"
+        || value
+            .strip_prefix("dataview:")
+            .is_some_and(|name| !name.is_empty())
+    {
+        Ok(value.to_string())
+    } else {
+        Err(format!(
+            "invalid lint rule `{value}`; expected {}, dataview, or dataview:NAME",
+            vault::LINT_RULE_NAMES.join(", ")
+        ))
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -376,8 +393,8 @@ enum Command {
         #[arg(
             long = "check",
             value_name = "RULE",
-            value_parser = ["broken-links", "orphans", "duplicates", "empty", "frontmatter", "headings"],
-            help = "Run one configured lint rule (repeatable)"
+            value_parser = parse_lint_check,
+            help = "Run a built-in rule, dataview, or dataview:NAME (repeatable)"
         )]
         check: Vec<String>,
         /// Vault-relative or absolute note filenames (repeatable).

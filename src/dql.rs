@@ -182,7 +182,7 @@ fn markdown_metadata(contents: &str) -> Result<Value> {
     )
 }
 
-fn snapshot(
+pub(crate) fn snapshot(
     config: &crate::vault::Config,
     origin: Option<&str>,
     query: &str,

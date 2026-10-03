@@ -149,6 +149,18 @@
           }
         ]
       }
+    },
+    {
+      "id": "daily-weight-missing",
+      "feature": "DV-LINT",
+      "query": "LIST WITHOUT ID file.path FROM \"Diary\" WHERE weight = null SORT file.path",
+      "expected": {
+        "type": "list",
+        "values": [
+          "Diary/2026-10-03.md",
+          "Diary/2026-10-04.md"
+        ]
+      }
     }
   ],
   "pluginSuites": [

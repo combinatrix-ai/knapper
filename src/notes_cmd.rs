@@ -753,9 +753,14 @@ pub fn lint(
     diff: Option<&str>,
 ) -> Result<usize> {
     for check in checks {
-        if !LINT_RULE_NAMES.contains(&check.as_str()) {
+        if !LINT_RULE_NAMES.contains(&check.as_str())
+            && check != "dataview"
+            && !check
+                .strip_prefix("dataview:")
+                .is_some_and(|name| config.lint_dataview.contains_key(name))
+        {
             return Err(anyhow!(
-                "unknown lint check `{check}`. Checks here: {}",
+                "unknown lint check `{check}`. Checks here: {}, dataview, dataview:NAME (configured names)",
                 LINT_RULE_NAMES.join(", ")
             ));
         }
@@ -1121,6 +1126,29 @@ pub fn lint(
         issues.extend(missing);
     }
 
+    let dataview_issues =
+        crate::lint_dataview::run(config, checks, &note_paths, selection.as_ref())?;
+    if !dataview_issues.is_empty()
+        || checks
+            .iter()
+            .any(|c| c == "dataview" || c.starts_with("dataview:"))
+        || (checks.is_empty() && !config.lint_dataview.is_empty())
+    {
+        summary.insert("dataview".into(), json!(dataview_issues.len()));
+        total += dataview_issues.len();
+        if format == "text" {
+            println!("Dataview violations: {}", dataview_issues.len());
+            for issue in &dataview_issues {
+                println!(
+                    "  {} [dataview:{}]: {}",
+                    issue["file"].as_str().unwrap(),
+                    issue["rule"].as_str().unwrap(),
+                    issue["detail"].as_str().unwrap()
+                );
+            }
+        }
+        issues.extend(dataview_issues);
+    }
     summary.insert("total_issues".into(), json!(total));
 
     if format == "json" {
