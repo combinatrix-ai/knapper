@@ -25,10 +25,12 @@ for (const name of entries) {
   // Include every transitive package notice in distributable binaries.
   for (const input of Object.keys(result.metafile.inputs)) {
     if (!input.includes('node_modules')) continue;
-    let dir = path.dirname(path.resolve(input));
+    let dir = path.dirname(path.resolve(options.absWorkingDir, input));
+    let foundPackage = false;
     while (dir.includes('node_modules')) {
       const pkg = path.join(dir, 'package.json');
       if (fs.existsSync(pkg)) {
+        foundPackage = true;
         const info = JSON.parse(fs.readFileSync(pkg));
         if (!licenses.has(info.name + '@' + info.version)) {
           const files = fs.readdirSync(dir).filter(f => /^(license|licence|copying|notice)([.-]|$)/i.test(f));
@@ -39,6 +41,7 @@ for (const name of entries) {
       }
       dir = path.dirname(dir);
     }
+    if (!foundPackage) throw Error('Missing package metadata for bundled input: ' + input);
   }
 }
 await build({...options, entryPoints: [path.join(here, 'engine.ts')], outfile: path.join(here,'native-engine.js'),

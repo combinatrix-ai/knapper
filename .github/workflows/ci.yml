@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "codex/release-*"]
+    branches: [main, "codex/release-*", "feat/dataview-dql"]
   pull_request:
     branches: [main]
 
@@ -21,6 +21,23 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: dql/package.json
+
+      - name: Rebuild pinned Dataview bundle and verify notices
+        run: |
+          pnpm --dir dql install --frozen-lockfile --ignore-scripts
+          pnpm --dir dql build
+          git diff --exit-code -- dql/engine.js dql/upstream-tests.js dql/upstream-index.ts dql/THIRD_PARTY_NOTICES.txt
+
+      - name: Unmodified upstream Jest suites
+        run: pnpm --dir dql test
+
       - name: Format
         run: cargo fmt -- --check
 
@@ -32,6 +49,11 @@ jobs:
       # vaults, which is what the CLI actually promises callers.
       - name: Test
         run: cargo test
+
+      - name: Compare embedded DQL with Node native Intl
+        env:
+          KNAPPER_DQL_NODE: node
+        run: cargo test node_reference_matches_embedded_runtime -- --ignored
 
       - name: Build release binaries
         run: cargo build --release --bin knapper

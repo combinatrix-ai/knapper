@@ -16,7 +16,7 @@ knapper rename "thesis" "dissertation"   # rename it and update links
 knapper tasks --overdue --format json    # what needs attention?
 ```
 
-[CLI manual](docs/CLI.md) · [Compatibility](docs/COMPATIBILITY.md) ·
+[Embedded Dataview DQL](dql/README.md) · [CLI manual](docs/CLI.md) · [Compatibility](docs/COMPATIBILITY.md) ·
 [Releases](https://github.com/combinatrix-ai/knapper/releases)
 
 > A *knapper* is someone who strikes obsidian and flint into usable blades.
@@ -80,6 +80,7 @@ to find the nearest `knapper.yaml`, so commands work from any
 subdirectory.
 
 ```bash
+knapper dql 'TABLE messages FROM "Diary" SORT file.day' --format json
 knapper query --where 'status=open' --sort inlinks:desc
 knapper context "Projects/thesis.md" --line 12 --format json
 knapper move Projects/thesis Archive/thesis --dry-run

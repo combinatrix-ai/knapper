@@ -25,6 +25,9 @@ anyhow = "1"
 attestation-verify = { git = "https://github.com/combinatrix-ai/attestation-verify", rev = "73d3b53ecbf2d3c71846ae4cab3fa6482be012eb" }
 uuid = { version = "1", features = ["v4"] }
 tempfile = "3"
+rquickjs = "0.11.0"
+pulldown-cmark = { version = "0.13", default-features = false }
+iana-time-zone = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

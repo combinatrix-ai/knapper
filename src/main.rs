@@ -11,6 +11,7 @@
 
 mod commands;
 mod demote;
+mod dql;
 mod graph;
 mod links;
 mod lint_selection;
@@ -395,6 +396,22 @@ enum Command {
         #[arg(short = 'f', long = "format", default_value = "text")]
         format: String,
     },
+    /// Execute a Dataview DQL query using the embedded engine.
+    Dql {
+        #[arg(required_unless_present = "licenses")]
+        query: Option<String>,
+        /// Current note for `this` and relative links/CSV paths.
+        #[arg(long)]
+        origin: Option<String>,
+        /// IANA timezone (defaults to the host timezone).
+        #[arg(long)]
+        timezone: Option<String>,
+        #[arg(short = 'f', long, default_value = "text", value_parser = ["text", "json"])]
+        format: String,
+        /// Print bundled engine licenses without reading a vault.
+        #[arg(long, conflicts_with = "query")]
+        licenses: bool,
+    },
     /// Filter notes by frontmatter, inline fields, and link counts.
     Query {
         #[arg(
@@ -565,6 +582,7 @@ fn run() -> Result<()> {
             | Command::Config(_)
             | Command::Provider(_)
             | Command::Resolve { .. }
+            | Command::Dql { licenses: true, .. }
     ) {
         update_notice::notify_and_schedule();
     }
@@ -575,6 +593,11 @@ fn run() -> Result<()> {
     // about the local provider config rather than about any note, so they
     // work from anywhere too.
     match &cli.command {
+        Command::Dql { licenses: true, .. } => {
+            println!("{}", dql::NOTICES);
+            return Ok(());
+        }
+
         Command::Init { force } => return notes_cmd::init(*force),
         Command::Config(ConfigCommand::Schema) => return notes_cmd::config_schema(),
         Command::Config(ConfigCommand::Check { format }) => {
@@ -767,6 +790,19 @@ fn run() -> Result<()> {
                 tag,
                 allow_existing_note,
             },
+            &format,
+        ),
+        Command::Dql {
+            query,
+            origin,
+            timezone,
+            format,
+            ..
+        } => dql::run(
+            &config,
+            query.as_deref().unwrap(),
+            origin.as_deref(),
+            timezone.as_deref(),
             &format,
         ),
         Command::Query {

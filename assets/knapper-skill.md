@@ -93,6 +93,30 @@ same way. Operators: `=` `!=` `>` `<` `>=` `<=` `~` (contains), a bare name for
 Computed fields: `path` `title` `ext` `inlinks` `outlinks` `broken` `tags`
 `words` `chars` `lines` `modified` `age`.
 
+## Dataview DQL
+
+`dql` executes a pinned, vendored Dataview 0.5.70 engine inside the binary:
+
+```bash
+knapper dql 'TABLE messages FROM "Diary" SORT file.day' --format json
+knapper dql 'TABLE sum(rows.messages) FROM "Diary" GROUP BY status' --format json
+knapper dql 'TASK FROM #work WHERE !completed' --format json
+knapper dql 'TABLE this.messages FROM "Diary"' --origin Diary/2026-10-03.md --format json
+knapper dql --licenses
+```
+
+The four DQL query types and upstream filters/grouping/functions are supported.
+JSON preserves dates/durations/links with type tags and includes row-error
+`diagnostics`. `--origin` selects the current note for `this`/relative CSVs;
+`--timezone` defaults to the host IANA timezone. No Node or Obsidian is needed.
+
+Use `query` for knapper's structural fields; use `dql` for Dataview expressions.
+This is headless DQL, not full Obsidian/DataviewJS compatibility. The snapshot
+indexes only Markdown/CSV in knapper's configured scope. Bookmarks are not
+loaded (`file.starred=false`); English/Japanese locale data is bundled, and
+Obsidian-specific metadata/link resolution edge cases remain. Queries have no
+host filesystem/network APIs. Do not claim embedded JS or checkbox mutation.
+
 ## Reading one note
 
 `context` aggregates what would otherwise take five calls -- content, links,

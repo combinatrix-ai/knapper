@@ -1,0 +1,5 @@
+packages:
+  - '.'
+# Rebuilding a checked-in bundle must never trigger an implicit install.
+# Dependencies are installed explicitly from the frozen lockfile.
+verifyDepsBeforeRun: false
