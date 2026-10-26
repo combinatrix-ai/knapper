@@ -833,6 +833,7 @@ knapper tasks --scheduled-from 2026-08-01 --scheduled-to 2026-08-07
 knapper tasks --exclude Archive/ --tag work
 knapper tasks new "write the README" --start 2026-07-28 --due 2026-08-01
 knapper tasks done "write the README"       # exact match; --partial for substring
+knapper tasks done "pay rent" --no-recur    # complete without the next occurrence
 knapper tasks --prose-only                  # skip checkboxes in fenced examples
 ```
 
@@ -841,6 +842,14 @@ a `%%comment%%` — the one place knapper does not mask non-prose, and
 deliberately: masking can only ever *hide* a task, and a visible example costs
 less than a missing entry on a list you act on. `--prose-only` is the opt-out
 for a vault that documents its own conventions.
+
+Completing a recurring task with `tasks done` (or `tasks set done`) writes its
+next occurrence on the line above, as the Tasks plugin does. `🔁 every N
+days|weeks|months|years` advances from the due date (else scheduled, else
+start); `when done` advances from today. The other dates keep their offset,
+the created date becomes today, and a month-end date clamps (Jan 31 → Feb 28).
+Richer rules such as `every week on Monday` are left alone with a warning;
+`--no-recur` skips the next occurrence.
 
 `--available` is also opt-in: it hides only tasks whose `🛫` start date is in
 the future. Tasks without a start date remain visible, and plain `knapper
@@ -1735,7 +1744,7 @@ Usage: knapper tasks [OPTIONS] [COMMAND]
 
 Commands:
   new     Create a new task
-  done    Mark a task as done
+  done    Mark a task as done, adding the next occurrence of a recurring one
   wip     Mark a task as in progress
   cancel  Mark a task as cancelled
   set     Transition a task to a named status
@@ -1835,7 +1844,7 @@ Options:
 ### knapper tasks done
 
 ```text
-Mark a task as done
+Mark a task as done, adding the next occurrence of a recurring one
 
 Usage: knapper tasks done [OPTIONS] <TEXT>
 
@@ -1847,6 +1856,7 @@ Options:
       --file <FILE>      
       --partial          Use partial matching (contains)
   -v, --vault <VAULT>    Path to vault (overrides config)
+      --no-recur         Do not create the next occurrence of a recurring task
   -h, --help             Print help
 ```
 

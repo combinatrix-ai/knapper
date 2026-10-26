@@ -38,7 +38,17 @@ static LOGSEQ_PLANNING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*(SCHEDULED|DEADLINE):\s*<(\d{4}-\d{2}-\d{2})").unwrap());
 
 static RECURRENCE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)🔁\s*every\s+(\d+)\s+(day|days|week|weeks|month|months|year|years)\b").unwrap()
+    Regex::new(r"(?i)🔁\s*every\s+(?:(\d+)\s+)?(day|days|week|weeks|month|months|year|years)\b")
+        .unwrap()
+});
+// The rule runs from 🔁 to the next Tasks marker, which is how the plugin
+// delimits it too.
+static RECURRENCE_RULE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"🔁\s*([^📅⏳🛫➕✅❌⏫🔼🔽🔺⏬🆔⛔🏁#]*)").unwrap());
+// The rules `tasks done` can compute a next occurrence for. Anything richer
+// ("every week on Monday") is refused rather than approximated.
+static SIMPLE_RULE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^every\s+(?:(\d+)\s+)?(day|week|month|year)s?(\s+when\s+done)?$").unwrap()
 });
 static TAG_IN_TASK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#([\w/-]+)").unwrap());
 
@@ -215,7 +225,7 @@ pub fn parse_priority(text: &str) -> Option<String> {
 
 pub fn parse_recurrence(text: &str) -> Option<(u32, String)> {
     RECURRENCE.captures(text).and_then(|c| {
-        let interval = c[1].parse().ok()?;
+        let interval = c.get(1).map_or(Some(1), |m| m.as_str().parse().ok())?;
         let mut unit = c[2].to_lowercase();
         if !unit.ends_with('s') {
             unit.push('s');
@@ -856,6 +866,7 @@ pub fn set_status(
     text: &str,
     file_filter: Option<&str>,
     partial: bool,
+    recur: bool,
 ) -> Result<()> {
     let resolved = resolve_statuses(config);
     let target = resolved
@@ -873,10 +884,62 @@ pub fn set_status(
     let indent = caps[1].to_string();
     let mut body = caps[3].trim().to_string();
 
+    let was_closed = resolved
+        .get(&status_name(
+            caps[2].chars().next().unwrap_or(' '),
+            &resolved,
+        ))
+        .is_some_and(|s| s.closed);
+    let today = chrono::Local::now().date_naive();
+
     // Drop any existing status date before adding the new one, so repeated
     // transitions do not stack markers.
-    for other in resolved.values() {
-        if let Some(format) = &other.date_format {
+    body = strip_status_dates(&body, &resolved)?;
+
+    // Like the Tasks plugin, completing a recurring task leaves its next
+    // occurrence on the line above. Re-completing a closed task does not.
+    let next = if recur && status == "done" && !was_closed {
+        match next_occurrence(&body, today, config) {
+            Ok(next) => next,
+            Err(rule) => {
+                eprintln!(
+                    "warning: recurrence \"{rule}\" is not supported; no next occurrence created"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    if let Some(format) = &target.date_format {
+        body = format!("{body} {}", format_marker(format, today));
+    }
+
+    lines[index] = format!("{indent}- [{}] {body}", target.char);
+    let open_char = resolved.get("open").map_or(' ', |s| s.char);
+    if let Some(next) = &next {
+        lines.insert(index, format!("{indent}- [{open_char}] {next}"));
+    }
+    std::fs::write(&path, lines.join("\n"))?;
+
+    // Same line the Python implementation prints, so a caller parsing stdout
+    // sees one format regardless of which binary it invoked.
+    let done_line = index + 1 + usize::from(next.is_some());
+    println!(
+        "[{}] {status}: {body} ({relative}:{done_line})",
+        target.char
+    );
+    if let Some(next) = next {
+        println!("[{open_char}] next: {next} ({relative}:{})", index + 1);
+    }
+    Ok(())
+}
+
+fn strip_status_dates(body: &str, statuses: &BTreeMap<String, Status>) -> Result<String> {
+    let mut body = body.to_string();
+    for status in statuses.values() {
+        if let Some(format) = &status.date_format {
             if let Some(marker) = format.split_whitespace().next() {
                 let pattern = Regex::new(&format!(
                     r"\s*{}\s*\d{{4}}-\d{{2}}-\d{{2}}",
@@ -886,25 +949,88 @@ pub fn set_status(
             }
         }
     }
+    Ok(body)
+}
 
-    if let Some(format) = &target.date_format {
-        body = format!(
-            "{body} {}",
-            format_marker(format, chrono::Local::now().date_naive())
-        );
+fn add_interval(date: NaiveDate, interval: u32, unit: &str) -> Option<NaiveDate> {
+    match unit {
+        "day" => date.checked_add_days(chrono::Days::new(interval.into())),
+        "week" => date.checked_add_days(chrono::Days::new(u64::from(interval) * 7)),
+        // chrono clamps to the month's last day (Jan 31 -> Feb 28), as Tasks does.
+        "month" => date.checked_add_months(chrono::Months::new(interval)),
+        _ => date.checked_add_months(chrono::Months::new(interval.checked_mul(12)?)),
+    }
+}
+
+fn replace_dates(body: &str, patterns: &[Regex], date: impl Fn(NaiveDate) -> NaiveDate) -> String {
+    let mut body = body.to_string();
+    for pattern in patterns {
+        body = pattern
+            .replace_all(
+                &body,
+                |c: &regex::Captures| match NaiveDate::parse_from_str(&c[1], "%Y-%m-%d") {
+                    Ok(old) => c[0].replace(&c[1], &date(old).format("%Y-%m-%d").to_string()),
+                    Err(_) => c[0].to_string(),
+                },
+            )
+            .into_owned();
+    }
+    body
+}
+
+/// The body of the occurrence that follows `body` once it is completed on
+/// `today`, following the Tasks plugin: the reference date is the due date,
+/// else scheduled, else start (or `today` with `when done`); it advances by
+/// the interval, and every date keeps its day offset from the reference.
+///
+/// `Ok(None)` means the task does not recur; `Err` carries a rule that does
+/// recur but cannot be computed here.
+fn next_occurrence(
+    body: &str,
+    today: NaiveDate,
+    config: &Config,
+) -> std::result::Result<Option<String>, String> {
+    let Some(rule) = RECURRENCE_RULE
+        .captures(body)
+        .map(|c| c[1].trim().to_string())
+    else {
+        return Ok(None);
+    };
+    let caps = SIMPLE_RULE.captures(&rule).ok_or_else(|| rule.clone())?;
+    let interval: u32 = caps
+        .get(1)
+        .map_or(Ok(1), |m| m.as_str().parse())
+        .map_err(|_| rule.clone())?;
+    if interval == 0 {
+        return Err(rule);
+    }
+    let unit = caps[2].to_lowercase();
+    let when_done = caps.get(3).is_some();
+
+    let ymd = |d: Option<String>| d.and_then(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok());
+    let reference = ymd(parse_due_date(body))
+        .or_else(|| ymd(parse_scheduled_date(body)))
+        .or_else(|| ymd(parse_start_date(body)));
+
+    let mut next = body.to_string();
+    if let Some(reference) = reference {
+        let base = if when_done { today } else { reference };
+        let next_reference = add_interval(base, interval, &unit).ok_or_else(|| rule.clone())?;
+        let shift = |d: NaiveDate| next_reference + (d - reference);
+        next = replace_dates(&next, &*DUE_DATES, shift);
+        next = replace_dates(&next, &*SCHEDULED_DATES, shift);
+        next = replace_dates(&next, &*START_DATES, shift);
     }
 
-    lines[index] = format!("{indent}- [{}] {body}", target.char);
-    std::fs::write(&path, lines.join("\n"))?;
-
-    // Same line the Python implementation prints, so a caller parsing stdout
-    // sees one format regardless of which binary it invoked.
-    println!(
-        "[{}] {status}: {body} ({relative}:{})",
-        target.char,
-        index + 1
-    );
-    Ok(())
+    if parse_created_date(&next).is_some() {
+        next = replace_dates(&next, &*CREATED_DATES, |_| today);
+    } else if config.tasks_created_date {
+        next = format!(
+            "{next} {}",
+            format_marker(&config.tasks_created_date_format, today)
+        );
+    }
+    Ok(Some(next))
 }
 
 /// Append a task to the daily note, the inbox, or a named file.
@@ -1094,12 +1220,114 @@ mod tests {
             parse_recurrence("Task 🔁 every 1 year"),
             Some((1, "years".to_string()))
         );
+        assert_eq!(
+            parse_recurrence("Task 🔁 every month"),
+            Some((1, "months".into()))
+        );
         assert_eq!(parse_recurrence("Task without recurrence"), None);
     }
 
     /// Date filters must reject what they cannot parse. They used to fall
     /// back to an unbounded range, which silently returned every task
     /// instead of reporting the bad input.
+    fn ymd(s: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    fn next(body: &str, today: &str) -> std::result::Result<Option<String>, String> {
+        let config = Config {
+            tasks_created_date: false,
+            ..Config::default()
+        };
+        next_occurrence(body, ymd(today), &config)
+    }
+
+    #[test]
+    fn a_monthly_task_advances_from_its_due_date_and_renews_its_created_date() {
+        assert_eq!(
+            next(
+                "Pay ➕ 2026-09-29 🔁 every 1 month 📅 2026-10-20",
+                "2026-10-26"
+            ),
+            Ok(Some(
+                "Pay ➕ 2026-10-26 🔁 every 1 month 📅 2026-11-20".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn a_month_end_due_date_clamps_to_the_shorter_month() {
+        assert_eq!(
+            next("Rent 🔁 every month 📅 2027-01-31", "2027-01-31"),
+            Ok(Some("Rent 🔁 every month 📅 2027-02-28".into()))
+        );
+    }
+
+    #[test]
+    fn when_done_advances_from_the_completion_date() {
+        assert_eq!(
+            next(
+                "Water plants 🔁 every 3 days when done 📅 2026-10-20",
+                "2026-10-26"
+            ),
+            Ok(Some(
+                "Water plants 🔁 every 3 days when done 📅 2026-10-29".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn other_dates_keep_their_offset_from_the_due_date() {
+        assert_eq!(
+            next(
+                "Report 🔁 every 2 weeks 🛫 2026-10-01 ⏳ 2026-10-05 📅 2026-10-10",
+                "2026-10-11"
+            ),
+            Ok(Some(
+                "Report 🔁 every 2 weeks 🛫 2026-10-15 ⏳ 2026-10-19 📅 2026-10-24".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn without_a_due_date_scheduled_is_the_reference() {
+        assert_eq!(
+            next("Review 🔁 every year ⏳ 2024-02-29", "2024-03-01"),
+            Ok(Some("Review 🔁 every year ⏳ 2025-02-28".into()))
+        );
+    }
+
+    #[test]
+    fn a_dateless_recurring_task_repeats_without_dates() {
+        assert_eq!(
+            next("Stretch 🔁 every day", "2026-10-26"),
+            Ok(Some("Stretch 🔁 every day".into()))
+        );
+    }
+
+    #[test]
+    fn the_created_date_is_added_when_the_vault_stamps_new_tasks() {
+        let config = Config::default();
+        let next = next_occurrence("Stretch 🔁 every day", ymd("2026-10-26"), &config);
+        assert_eq!(next, Ok(Some("Stretch 🔁 every day ➕ 2026-10-26".into())));
+    }
+
+    #[test]
+    fn a_task_without_recurrence_has_no_next_occurrence() {
+        assert_eq!(next("Ship it 📅 2026-10-20", "2026-10-26"), Ok(None));
+    }
+
+    #[test]
+    fn a_rule_beyond_a_plain_interval_is_refused() {
+        assert_eq!(
+            next(
+                "Standup 🔁 every week on Monday 📅 2026-10-26",
+                "2026-10-26"
+            ),
+            Err("every week on Monday".into())
+        );
+    }
+
     #[test]
     fn date_filters_reject_relative_and_malformed_values() {
         for bad in [
