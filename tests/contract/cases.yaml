@@ -528,6 +528,58 @@
         contains: ["- [x] methods section ✅"]
         excludes: ["- [/] methods section"]
 
+- name: tasks done puts a recurring task's next occurrence above it
+  vault: recurring
+  # The created date becomes today; only the due date is fixed.
+  args: [tasks, done, "Pay phone bill"]
+  expect:
+    stdout_contains: ["next: Pay phone bill", "📅 2026-11-20", "Periodic.md:3", "Periodic.md:4"]
+    file:
+      "Periodic.md":
+        contains:
+          - "🔁 every 1 month 📅 2026-11-20\n- [x] Pay phone bill ➕ 2026-09-29 🔁 every 1 month 📅 2026-10-20 ✅"
+        excludes: ["📅 2026-11-20 ✅", "➕ 2026-09-29 🔁 every 1 month 📅 2026-11-20"]
+
+- name: tasks done --no-recur completes a recurring task without a next one
+  vault: recurring
+  args: [tasks, done, "Pay phone bill", --no-recur]
+  expect:
+    stdout_excludes: ["next:"]
+    file:
+      "Periodic.md":
+        contains: ["- [x] Pay phone bill"]
+        excludes: ["- [ ] Pay phone bill", "2026-11-20"]
+
+- name: tasks done on a non-recurring task adds no line
+  vault: recurring
+  args: [tasks, done, "Ship report"]
+  expect:
+    stdout_excludes: ["next:"]
+    file:
+      "Periodic.md":
+        contains: ["- [x] Ship report 📅 2026-10-20 ✅"]
+        excludes: ["- [ ] Ship report"]
+
+- name: a when-done task recurs from today and keeps its indentation
+  vault: recurring
+  args: [tasks, done, "Water plants"]
+  expect:
+    file:
+      "Periodic.md":
+        contains:
+          - "- [ ] Parent\n  - [ ] Water plants 🔁 every 3 days when done 📅 "
+          - "\n  - [x] Water plants 🔁 every 3 days when done 📅 2026-10-20 ✅"
+        excludes: ["📅 2026-10-23"]
+
+- name: cancelling a recurring task creates no next occurrence
+  vault: recurring
+  args: [tasks, cancel, "Pay phone bill"]
+  expect:
+    file:
+      "Periodic.md":
+        contains: ["- [-] Pay phone bill"]
+        excludes: ["- [ ] Pay phone bill"]
+
 - name: tasks wip moves a task to in-progress
   vault: obsidian
   args: [tasks, wip, "draft intro", --partial]

@@ -93,13 +93,18 @@ enum TaskCommand {
         #[arg(long = "priority", value_parser = ["high", "medium", "low"])]
         priority: Option<String>,
     },
-    /// Mark a task as done.
+    /// Mark a task as done, adding the next occurrence of a recurring one.
     Done {
         text: String,
         #[arg(long = "file")]
         file: Option<String>,
         #[arg(long = "partial", help = "Use partial matching (contains)")]
         partial: bool,
+        #[arg(
+            long = "no-recur",
+            help = "Do not create the next occurrence of a recurring task"
+        )]
+        no_recur: bool,
     },
     /// Mark a task as in progress.
     Wip {
@@ -819,23 +824,24 @@ fn run() -> Result<()> {
                 text,
                 file,
                 partial,
-            } => tasks::set_status(&config, "done", &text, file.as_deref(), partial),
+                no_recur,
+            } => tasks::set_status(&config, "done", &text, file.as_deref(), partial, !no_recur),
             TaskCommand::Wip {
                 text,
                 file,
                 partial,
-            } => tasks::set_status(&config, "wip", &text, file.as_deref(), partial),
+            } => tasks::set_status(&config, "wip", &text, file.as_deref(), partial, false),
             TaskCommand::Cancel {
                 text,
                 file,
                 partial,
-            } => tasks::set_status(&config, "cancel", &text, file.as_deref(), partial),
+            } => tasks::set_status(&config, "cancel", &text, file.as_deref(), partial, false),
             TaskCommand::Set {
                 status,
                 text,
                 file,
                 partial,
-            } => tasks::set_status(&config, &status, &text, file.as_deref(), partial),
+            } => tasks::set_status(&config, &status, &text, file.as_deref(), partial, true),
         },
         Command::Tasks {
             action: None,

@@ -37,7 +37,7 @@ being fine.
 - ✅ **Due** — `📅 2026-08-01`, and `due:2026-08-01` / `@due(2026-08-01)`
 - ✅ **Done** — `✅ 2026-07-20`, and `done:` / `@done(...)`
 - ✅ **Created** — `➕ 2026-07-01`, and `created:` / `@created(...)`
-- ✅ **Recurrence** — `🔁 every 2 weeks`
+- ✅ **Recurrence** — `🔁 every 2 weeks`; `tasks done` writes the next occurrence for plain intervals, including `when done`
 - ✅ **Scheduled** — `⏳ 2026-08-01`, and `scheduled:2026-08-01`
 - ✅ **Start** — `🛫 2026-08-01`, and `start:2026-08-01`
 - ✅ **Priority** — `⏫` high, `🔼` medium, `🔽` low, now read as well as written
